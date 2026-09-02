@@ -539,15 +539,6 @@ private fun ControlScreen(
                     modifier = Modifier.padding(start = 9.dp)
                 )
             }
-            Text(
-                text = "二维码仅用于本次出水，不会更改已绑定设备",
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 7.dp),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.bodySmall,
-                textAlign = TextAlign.Center
-            )
         }
         item {
             DeviceStatusCard(bindings = state.bindings)
