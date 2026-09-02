@@ -9,9 +9,9 @@ import java.util.concurrent.atomic.AtomicLong
 internal object Protocol {
     private val messageSequence = AtomicLong(0)
 
-    fun mobilePayload(mobile: String): String = JsonObject().apply {
+    fun mobilePayload(mobile: String, type: String = "login"): String = JsonObject().apply {
         addProperty("mobile", mobile)
-        addProperty("type", "login")
+        addProperty("type", type)
     }.toString()
 
     fun loginPayload(mobile: String, code: String): String = JsonObject().apply {
@@ -23,6 +23,14 @@ internal object Protocol {
         addProperty("mobile", mobile)
         addProperty("pwd", password)
     }.toString()
+
+    fun registrationPayload(mobile: String, code: String, password: String): String =
+        JsonObject().apply {
+            addProperty("code", code)
+            addProperty("invite_code", "")
+            addProperty("mobile", mobile)
+            addProperty("password", password)
+        }.toString()
 
     fun devicePayload(deviceKey: String): String = JsonObject().apply {
         addProperty("device_key", deviceKey)
@@ -74,12 +82,18 @@ internal object Protocol {
     }
 
     fun parseSession(json: String, fallbackMobile: String): UserSession {
-        val root = parseDecryptedObject(json)
-        val token = root.stringValue("token")
+        return parseSessionOrNull(json, fallbackMobile)
             ?: throw RemoteApiException("登录响应中没有令牌")
-        val mobile = root.stringValue("mobile") ?: fallbackMobile
-        val balance = root.getAsJsonObject("wallet")?.stringValue("balance")
-        return UserSession(mobile = mobile, token = token, balance = balance)
+    }
+
+    fun parseSessionOrNull(json: String, fallbackMobile: String): UserSession? {
+        val root = runCatching { parseDecryptedObject(json) }.getOrNull() ?: return null
+        val token = root.stringValue("token") ?: return null
+        return UserSession(
+            mobile = root.stringValue("mobile") ?: fallbackMobile,
+            token = token,
+            balance = root.getAsJsonObject("wallet")?.stringValue("balance")
+        )
     }
 
     fun parseBalance(json: String): String {

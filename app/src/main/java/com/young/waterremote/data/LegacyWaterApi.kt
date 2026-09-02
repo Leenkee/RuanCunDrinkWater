@@ -23,6 +23,14 @@ class LegacyWaterApi(
         )
     }
 
+    suspend fun requestRegistrationCode(mobile: String) {
+        val encrypted = LegacyCrypto.encrypt(Protocol.mobilePayload(mobile, type = "register"))
+        post(
+            url = "$USER_API/sendCode",
+            envelope = Protocol.envelope("sendCode", encrypted)
+        )
+    }
+
     suspend fun login(mobile: String, code: String): UserSession {
         val encrypted = LegacyCrypto.encrypt(Protocol.loginPayload(mobile, code))
         val decrypted = post(
@@ -39,6 +47,17 @@ class LegacyWaterApi(
             envelope = Protocol.envelope("loginByPwd", encrypted)
         )
         return Protocol.parseSession(decrypted, mobile)
+    }
+
+    suspend fun register(mobile: String, code: String, password: String): UserSession? {
+        val encrypted = LegacyCrypto.encrypt(
+            Protocol.registrationPayload(mobile, code, password)
+        )
+        val decrypted = post(
+            url = "$USER_API/register",
+            envelope = Protocol.envelope("register", encrypted)
+        )
+        return Protocol.parseSessionOrNull(decrypted, mobile)
     }
 
     suspend fun fetchBalance(session: UserSession): String {

@@ -5,6 +5,7 @@ import android.content.pm.PackageManager
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -41,7 +42,6 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -80,6 +80,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -93,20 +94,26 @@ import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import com.young.waterremote.AppUiState
 import com.young.waterremote.MainViewModel
+import com.young.waterremote.R
 import com.young.waterremote.data.DeviceBindings
 import com.young.waterremote.data.WaterType
 import com.young.waterremote.ui.theme.ColdBlue
 import com.young.waterremote.ui.theme.HotRed
 
 private enum class MainSection(val title: String, val label: String) {
-    CONTROL("饮水机遥控", "控制"),
+    CONTROL("山软喝水", "控制"),
     DEVICES("设备绑定", "设备"),
-    ACCOUNT("我的账户", "账户")
+    ACCOUNT("我的", "我的")
 }
 
 private enum class LoginMode {
     CODE,
     PASSWORD
+}
+
+private enum class AuthPage {
+    LOGIN,
+    REGISTER
 }
 
 @Composable
@@ -134,8 +141,11 @@ fun WaterRemoteApp(viewModel: MainViewModel) {
             LoginScreen(
                 state = state,
                 onRequestCode = viewModel::requestCode,
+                onRequestRegistrationCode = viewModel::requestRegistrationCode,
                 onCodeLogin = viewModel::login,
-                onPasswordLogin = viewModel::loginWithPassword
+                onPasswordLogin = viewModel::loginWithPassword,
+                onRegister = viewModel::register,
+                onRegistrationHandled = viewModel::consumeRegistrationCompleted
             )
         }
 
@@ -157,20 +167,40 @@ fun WaterRemoteApp(viewModel: MainViewModel) {
 private fun LoginScreen(
     state: AppUiState,
     onRequestCode: (String) -> Unit,
+    onRequestRegistrationCode: (String) -> Unit,
     onCodeLogin: (String, String) -> Unit,
-    onPasswordLogin: (String, String) -> Unit
+    onPasswordLogin: (String, String) -> Unit,
+    onRegister: (String, String, String) -> Unit,
+    onRegistrationHandled: () -> Unit
 ) {
     var mobile by rememberSaveable { mutableStateOf("") }
     var code by rememberSaveable { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var loginModeName by rememberSaveable { mutableStateOf(LoginMode.CODE.name) }
+    var authPageName by rememberSaveable { mutableStateOf(AuthPage.LOGIN.name) }
     val loginMode = LoginMode.valueOf(loginModeName)
-    val busy = state.isRequestingCode || state.isLoggingIn
+    val authPage = AuthPage.valueOf(authPageName)
+    val submitBusy = if (authPage == AuthPage.REGISTER) {
+        state.isRegistering
+    } else {
+        state.isLoggingIn
+    }
+    val busy = state.isRequestingCode || submitBusy
+
+    LaunchedEffect(state.registrationCompleted) {
+        if (state.registrationCompleted) {
+            authPageName = AuthPage.LOGIN.name
+            code = ""
+            password = ""
+            onRegistrationHandled()
+        }
+    }
 
     fun submitLogin() {
-        when (loginMode) {
-            LoginMode.CODE -> onCodeLogin(mobile, code)
-            LoginMode.PASSWORD -> onPasswordLogin(mobile, password)
+        when {
+            authPage == AuthPage.REGISTER -> onRegister(mobile, code, password)
+            loginMode == LoginMode.CODE -> onCodeLogin(mobile, code)
+            else -> onPasswordLogin(mobile, password)
         }
     }
 
@@ -185,20 +215,24 @@ private fun LoginScreen(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Spacer(modifier = Modifier.height(20.dp))
-        WaterMark(modifier = Modifier.size(104.dp))
-        Spacer(modifier = Modifier.height(20.dp))
+        AppMark(modifier = Modifier.size(112.dp))
+        Spacer(modifier = Modifier.height(16.dp))
         Text(
-            text = "饮水机遥控",
+            text = "山软喝水",
             style = MaterialTheme.typography.headlineLarge,
             fontWeight = FontWeight.Bold
         )
         Text(
-            text = "登录后即可远程控制冷热水",
-            modifier = Modifier.padding(top = 8.dp),
+            text = if (authPage == AuthPage.REGISTER) {
+                "使用手机号完成注册"
+            } else {
+                "登录后远程控制冷热水"
+            },
+            modifier = Modifier.padding(top = 6.dp),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            style = MaterialTheme.typography.bodyLarge
+            style = MaterialTheme.typography.bodyMedium
         )
-        Spacer(modifier = Modifier.height(36.dp))
+        Spacer(modifier = Modifier.height(26.dp))
 
         Card(
             modifier = Modifier.fillMaxWidth(),
@@ -206,39 +240,47 @@ private fun LoginScreen(
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
         ) {
             Column(modifier = Modifier.padding(22.dp)) {
-                Text(
-                    text = "手机号登录",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Text(
-                    text = if (loginMode == LoginMode.CODE) {
-                        "使用小天同学账户接收验证码"
-                    } else {
-                        "使用小天同学帐号密码登录"
-                    },
-                    modifier = Modifier.padding(top = 4.dp, bottom = 20.dp),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 14.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    FilterChip(
-                        selected = loginMode == LoginMode.CODE,
-                        onClick = { loginModeName = LoginMode.CODE.name },
-                        label = { Text("验证码登录") },
-                        modifier = Modifier.weight(1f)
-                    )
-                    FilterChip(
-                        selected = loginMode == LoginMode.PASSWORD,
-                        onClick = { loginModeName = LoginMode.PASSWORD.name },
-                        label = { Text("密码登录") },
-                        modifier = Modifier.weight(1f)
-                    )
+                if (authPage == AuthPage.LOGIN) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 14.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        FilterChip(
+                            selected = loginMode == LoginMode.CODE,
+                            onClick = { loginModeName = LoginMode.CODE.name },
+                            label = { Text("验证码登录") },
+                            modifier = Modifier.weight(1f)
+                        )
+                        FilterChip(
+                            selected = loginMode == LoginMode.PASSWORD,
+                            onClick = { loginModeName = LoginMode.PASSWORD.name },
+                            label = { Text("密码登录") },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "手机号注册",
+                            modifier = Modifier.weight(1f),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        TextButton(onClick = {
+                            authPageName = AuthPage.LOGIN.name
+                            code = ""
+                            password = ""
+                        }) {
+                            Text("返回登录")
+                        }
+                    }
                 }
 
                 OutlinedTextField(
@@ -247,9 +289,9 @@ private fun LoginScreen(
                         if (value.length <= 11 && value.all(Char::isDigit)) mobile = value
                     },
                     modifier = Modifier.fillMaxWidth(),
-                    enabled = !state.isLoggingIn,
+                    enabled = !submitBusy,
                     singleLine = true,
-                    label = { Text(if (loginMode == LoginMode.CODE) "手机号码" else "帐号（手机号）") },
+                    label = { Text("手机号") },
                     leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null) },
                     keyboardOptions = KeyboardOptions(
                         keyboardType = KeyboardType.Phone,
@@ -257,7 +299,7 @@ private fun LoginScreen(
                     )
                 )
                 Spacer(modifier = Modifier.height(14.dp))
-                if (loginMode == LoginMode.CODE) {
+                if (authPage == AuthPage.REGISTER || loginMode == LoginMode.CODE) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
@@ -268,7 +310,7 @@ private fun LoginScreen(
                                 if (value.length <= 8 && value.all(Char::isDigit)) code = value
                             },
                             modifier = Modifier.weight(1f),
-                            enabled = !state.isLoggingIn,
+                            enabled = !submitBusy,
                             singleLine = true,
                             label = { Text("验证码") },
                             leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
@@ -280,7 +322,13 @@ private fun LoginScreen(
                         )
                         Spacer(modifier = Modifier.width(10.dp))
                         FilledTonalButton(
-                            onClick = { onRequestCode(mobile) },
+                            onClick = {
+                                if (authPage == AuthPage.REGISTER) {
+                                    onRequestRegistrationCode(mobile)
+                                } else {
+                                    onRequestCode(mobile)
+                                }
+                            },
                             enabled = !busy && state.codeCooldownSeconds == 0,
                             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 16.dp)
                         ) {
@@ -300,14 +348,18 @@ private fun LoginScreen(
                             }
                         }
                     }
-                } else {
+                }
+                if (authPage == AuthPage.REGISTER || loginMode == LoginMode.PASSWORD) {
+                    if (authPage == AuthPage.REGISTER) {
+                        Spacer(modifier = Modifier.height(14.dp))
+                    }
                     OutlinedTextField(
                         value = password,
                         onValueChange = { value ->
                             if (value.length <= 128) password = value
                         },
                         modifier = Modifier.fillMaxWidth(),
-                        enabled = !state.isLoggingIn,
+                        enabled = !submitBusy,
                         singleLine = true,
                         label = { Text("密码") },
                         leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
@@ -329,25 +381,36 @@ private fun LoginScreen(
                     enabled = !busy,
                     shape = RoundedCornerShape(16.dp)
                 ) {
-                    if (state.isLoggingIn) {
+                    if (submitBusy) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(22.dp),
                             color = MaterialTheme.colorScheme.onPrimary,
                             strokeWidth = 2.dp
                         )
                     } else {
-                        Text("登录", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            if (authPage == AuthPage.REGISTER) "注册" else "登录",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+                if (authPage == AuthPage.LOGIN) {
+                    TextButton(
+                        onClick = {
+                            authPageName = AuthPage.REGISTER.name
+                            code = ""
+                            password = ""
+                        },
+                        modifier = Modifier
+                            .align(Alignment.CenterHorizontally)
+                            .padding(top = 6.dp)
+                    ) {
+                        Text("注册账户")
                     }
                 }
             }
         }
-        Text(
-            text = "本应用直接连接饮水机服务，帐号密码不会保存在本机。",
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 18.dp),
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            style = MaterialTheme.typography.bodySmall,
-            textAlign = TextAlign.Center
-        )
     }
 }
 
@@ -530,7 +593,7 @@ private fun BalanceCard(
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "账户余额",
+                    text = "余额",
                     color = MaterialTheme.colorScheme.onPrimaryContainer,
                     style = MaterialTheme.typography.labelLarge
                 )
@@ -837,7 +900,10 @@ private fun DeviceKeyField(
         },
         trailingIcon = {
             IconButton(onClick = onScan) {
-                Icon(Icons.Default.Search, contentDescription = "扫描${type.label}二维码")
+                Icon(
+                    painter = painterResource(R.drawable.ic_qr_code),
+                    contentDescription = "扫描${type.label}二维码"
+                )
             }
         }
     )
@@ -903,7 +969,7 @@ private fun AccountScreen(
                     )
                     HorizontalDivider(modifier = Modifier.padding(vertical = 20.dp))
                     Text(
-                        "账户余额",
+                        "余额",
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Text(
@@ -947,7 +1013,7 @@ private fun AccountScreen(
             onDismissRequest = { showLogoutDialog = false },
             icon = { Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = null) },
             title = { Text("退出登录？") },
-            text = { Text("退出后将移除本机保存的账户令牌，设备绑定会保留。") },
+            text = { Text("退出后将移除本机保存的登录信息，设备绑定会保留。") },
             confirmButton = {
                 TextButton(onClick = {
                     showLogoutDialog = false
@@ -1005,26 +1071,23 @@ private fun WaterConfirmationDialog(
 }
 
 @Composable
-private fun WaterMark(modifier: Modifier = Modifier) {
+private fun AppMark(modifier: Modifier = Modifier) {
     Surface(
         modifier = modifier,
         shape = CircleShape,
         color = MaterialTheme.colorScheme.primaryContainer,
         shadowElevation = 8.dp
     ) {
-        Box(contentAlignment = Alignment.Center) {
-            Text(
-                text = "水",
-                color = MaterialTheme.colorScheme.primary,
-                fontSize = 38.sp,
-                fontWeight = FontWeight.Bold
-            )
-        }
+        Image(
+            painter = painterResource(R.drawable.student_drinking_icon),
+            contentDescription = null,
+            modifier = Modifier.fillMaxSize()
+        )
     }
 }
 
 private fun maskMobile(mobile: String): String {
-    if (mobile.length < 7) return mobile.ifBlank { "已登录账户" }
+    if (mobile.length < 7) return mobile.ifBlank { "已登录手机号" }
     return mobile.take(3) + " **** " + mobile.takeLast(4)
 }
 

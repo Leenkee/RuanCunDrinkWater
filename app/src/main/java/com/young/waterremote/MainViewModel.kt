@@ -26,6 +26,8 @@ data class AppUiState(
     val bindings: DeviceBindings = DeviceBindings(),
     val isRequestingCode: Boolean = false,
     val isLoggingIn: Boolean = false,
+    val isRegistering: Boolean = false,
+    val registrationCompleted: Boolean = false,
     val isRefreshingBalance: Boolean = false,
     val sendingWater: WaterType? = null,
     val codeCooldownSeconds: Int = 0,
@@ -61,6 +63,29 @@ class MainViewModel(
                 .onSuccess {
                     _state.update { it.copy(isRequestingCode = false, codeCooldownSeconds = 60) }
                     showMessage("验证码已发送")
+                    startCodeCooldown()
+                }
+                .onFailure {
+                    _state.update { it.copy(isRequestingCode = false) }
+                    showFailure(it)
+                }
+        }
+    }
+
+    fun requestRegistrationCode(mobile: String) {
+        val normalized = mobile.trim()
+        if (!InputValidator.isValidMobile(normalized)) {
+            showMessage("请输入正确的 11 位手机号")
+            return
+        }
+        if (_state.value.isRequestingCode || _state.value.codeCooldownSeconds > 0) return
+
+        viewModelScope.launch {
+            _state.update { it.copy(isRequestingCode = true) }
+            runCatching { api.requestRegistrationCode(normalized) }
+                .onSuccess {
+                    _state.update { it.copy(isRequestingCode = false, codeCooldownSeconds = 60) }
+                    showMessage("注册验证码已发送")
                     startCodeCooldown()
                 }
                 .onFailure {
@@ -108,7 +133,7 @@ class MainViewModel(
                 return
             }
             !InputValidator.isValidPassword(password) -> {
-                showMessage("请输入帐号密码")
+                showMessage("请输入密码")
                 return
             }
             _state.value.isLoggingIn -> return
@@ -127,6 +152,53 @@ class MainViewModel(
                     showFailure(it)
                 }
         }
+    }
+
+    fun register(mobile: String, code: String, password: String) {
+        val normalizedMobile = mobile.trim()
+        val normalizedCode = code.trim()
+        when {
+            !InputValidator.isValidMobile(normalizedMobile) -> {
+                showMessage("请输入正确的 11 位手机号")
+                return
+            }
+            !InputValidator.isValidCode(normalizedCode) -> {
+                showMessage("请输入 4–8 位数字验证码")
+                return
+            }
+            !InputValidator.isValidPassword(password) -> {
+                showMessage("请输入密码")
+                return
+            }
+            _state.value.isRegistering -> return
+        }
+
+        viewModelScope.launch {
+            _state.update { it.copy(isRegistering = true, registrationCompleted = false) }
+            runCatching { api.register(normalizedMobile, normalizedCode, password) }
+                .onSuccess { session ->
+                    if (session != null) {
+                        store.saveSession(session)
+                        _state.update {
+                            it.copy(session = session, isRegistering = false)
+                        }
+                        showMessage("注册成功")
+                    } else {
+                        _state.update {
+                            it.copy(isRegistering = false, registrationCompleted = true)
+                        }
+                        showMessage("注册成功，请登录")
+                    }
+                }
+                .onFailure {
+                    _state.update { it.copy(isRegistering = false) }
+                    showFailure(it)
+                }
+        }
+    }
+
+    fun consumeRegistrationCompleted() {
+        _state.update { it.copy(registrationCompleted = false) }
     }
 
     fun refreshBalance() {

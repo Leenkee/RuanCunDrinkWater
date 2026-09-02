@@ -56,4 +56,30 @@ class LegacyCryptoTest {
         assertEquals("example-password@1", json.get("pwd").asString)
         assertFalse(json.has("password"))
     }
+
+    @Test
+    fun registrationPayload_matchesCapturedFieldStructure() {
+        val payload = Protocol.registrationPayload(
+            mobile = "13800138000",
+            code = "123456",
+            password = "example-password@1"
+        )
+        val json = JsonParser.parseString(payload).asJsonObject
+
+        assertEquals("123456", json.get("code").asString)
+        assertEquals("", json.get("invite_code").asString)
+        assertEquals("13800138000", json.get("mobile").asString)
+        assertEquals("example-password@1", json.get("password").asString)
+        assertFalse(json.has("pwd"))
+    }
+
+    @Test
+    fun registrationCodePayload_usesRegisterPurpose() {
+        val json = JsonParser.parseString(
+            Protocol.mobilePayload("13800138000", type = "register")
+        ).asJsonObject
+
+        assertEquals("13800138000", json.get("mobile").asString)
+        assertEquals("register", json.get("type").asString)
+    }
 }
