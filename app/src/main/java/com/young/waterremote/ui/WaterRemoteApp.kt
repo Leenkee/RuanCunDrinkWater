@@ -351,6 +351,10 @@ private fun MainShell(
     var pendingWater by remember { mutableStateOf<WaterType?>(null) }
     var pendingTemporaryDeviceKey by rememberSaveable { mutableStateOf<String?>(null) }
 
+    LaunchedEffect(section) {
+        if (section == MainSection.ACCOUNT) onRefreshBalance()
+    }
+
     val temporaryScanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
         val contents = result.contents?.trim()
         if (contents.isNullOrBlank()) {

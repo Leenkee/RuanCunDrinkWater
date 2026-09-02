@@ -43,11 +43,11 @@ class LegacyWaterApi(
 
     suspend fun fetchBalance(session: UserSession): String {
         val encrypted = LegacyCrypto.encrypt(Protocol.mobilePayload(session.mobile))
-        val decrypted = post(
+        val responseBody = postRaw(
             url = "$USER_INFO_API/getUserInfo",
             envelope = Protocol.envelope("getUserInfo", encrypted, session.token)
         )
-        return Protocol.parseBalance(decrypted)
+        return Protocol.parseBalanceResponse(responseBody)
     }
 
     suspend fun sendCommand(token: String, deviceKey: String): CommandReceipt {
@@ -59,38 +59,59 @@ class LegacyWaterApi(
         return Protocol.parseReceipt(decrypted)
     }
 
-    private suspend fun post(url: String, envelope: String): String = withContext(Dispatchers.IO) {
-        val body = FormBody.Builder()
-            .add("gptechMsg", envelope)
-            .build()
-        val request = Request.Builder()
-            .url(url)
-            .header("Accept-Language", "zh-CN,zh;q=0.8")
-            .header("User-Agent", USER_AGENT)
-            .header("Cache-Control", "no-cache")
-            .post(body)
-            .build()
-
-        try {
-            client.newCall(request).execute().use { response ->
-                val responseBody = response.body?.string().orEmpty()
-                if (!response.isSuccessful) {
-                    throw RemoteApiException("网络请求失败（${response.code}）")
-                }
-                Protocol.decryptResponse(responseBody)
-            }
-        } catch (error: RemoteApiException) {
-            throw error
-        } catch (error: IOException) {
-            throw RemoteApiException("无法连接饮水机服务，请检查网络", error)
-        }
+    suspend fun fetchDrinkingStatus(
+        token: String,
+        deviceKey: String,
+        orderNumber: String
+    ): DrinkingStatus {
+        val encrypted = LegacyCrypto.encrypt(
+            Protocol.drinkingStatusPayload(deviceKey, orderNumber)
+        )
+        val responseBody = postRaw(
+            url = DRINKING_STATUS_API,
+            envelope = Protocol.envelope("getQrDrinkingStatu", encrypted, token)
+        )
+        return Protocol.parseDrinkingStatusResponse(responseBody, orderNumber)
     }
+
+    private suspend fun post(url: String, envelope: String): String =
+        Protocol.decryptResponse(postRaw(url, envelope))
+
+    private suspend fun postRaw(url: String, envelope: String): String =
+        withContext(Dispatchers.IO) {
+            val body = FormBody.Builder()
+                .add("gptechMsg", envelope)
+                .build()
+            val request = Request.Builder()
+                .url(url)
+                .header("Accept-Language", "zh-CN,zh;q=0.8")
+                .header("User-Agent", USER_AGENT)
+                .header("Cache-Control", "no-cache")
+                .post(body)
+                .build()
+
+            try {
+                client.newCall(request).execute().use { response ->
+                    val responseBody = response.body?.string().orEmpty()
+                    if (!response.isSuccessful) {
+                        throw RemoteApiException("网络请求失败（${response.code}）")
+                    }
+                    responseBody
+                }
+            } catch (error: RemoteApiException) {
+                throw error
+            } catch (error: IOException) {
+                throw RemoteApiException("无法连接饮水机服务，请检查网络", error)
+            }
+        }
 
     private companion object {
         const val USER_API = "http://newxiaotian.tianji-inc.com/api/v1/UserApi"
         const val USER_INFO_API = "http://newxiaotian.tianji-inc.com/api/v1/UserInfoApi"
         const val DRINK_COMMAND_API =
             "http://iot.tianji-inc.com/index.php/drinking/send_command/send"
+        const val DRINKING_STATUS_API =
+            "http://iot.tianji-inc.com/index.php/drinking/qrcode_drinking/getQrDrinkingStatu"
         const val USER_AGENT =
             "Mozilla/5.0 (Linux; Android) AppleWebKit/537.36 Mobile WaterRemote/1.1"
     }

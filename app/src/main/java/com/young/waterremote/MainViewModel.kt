@@ -5,12 +5,15 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.young.waterremote.data.DeviceBindings
+import com.young.waterremote.data.DrinkingStatus
 import com.young.waterremote.data.InputValidator
 import com.young.waterremote.data.LegacyWaterApi
 import com.young.waterremote.data.RemoteApiException
 import com.young.waterremote.data.SessionStore
+import com.young.waterremote.data.SessionInvalidException
 import com.young.waterremote.data.UserSession
 import com.young.waterremote.data.WaterType
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -40,6 +43,7 @@ class MainViewModel(
     private val store: SessionStore
 ) : ViewModel() {
     private val messageIds = AtomicLong(0)
+    private val drinkingStatusJobs = mutableMapOf<String, Job>()
     private val _state = MutableStateFlow(
         AppUiState(
             session = store.loadSession(),
@@ -141,6 +145,7 @@ class MainViewModel(
             _state.update { it.copy(isRefreshingBalance = true) }
             runCatching { api.fetchBalance(session) }
                 .onSuccess { balance ->
+                    if (_state.value.session?.token != session.token) return@onSuccess
                     val updatedSession = session.copy(balance = balance)
                     store.saveSession(updatedSession)
                     _state.update {
@@ -148,9 +153,10 @@ class MainViewModel(
                     }
                     showMessage("余额已更新")
                 }
-                .onFailure {
+                .onFailure { error ->
+                    if (_state.value.session?.token != session.token) return@onFailure
                     _state.update { it.copy(isRefreshingBalance = false) }
-                    showFailure(it)
+                    if (!handleInvalidSession(error)) showFailure(error)
                 }
         }
     }
@@ -224,10 +230,14 @@ class MainViewModel(
                     _state.update {
                         it.copy(sendingWater = null, isSendingTemporaryWater = false)
                     }
-                    val suffix = receipt.orderNumber?.takeIf { it.isNotBlank() }
-                        ?.let { "，单号 ${it.takeLast(8)}" }
-                        .orEmpty()
+                    val orderNumber = receipt.orderNumber?.takeIf { it.isNotBlank() }
+                    val suffix = orderNumber?.let { "，单号 ${it.takeLast(8)}" }.orEmpty()
                     showMessage("$successMessage$suffix")
+                    if (orderNumber != null) {
+                        monitorDrinkingCompletion(session, deviceKey, orderNumber)
+                    } else {
+                        showMessage("未获取到订单号，接水结束后请手动刷新余额")
+                    }
                 }
                 .onFailure {
                     _state.update {
@@ -239,15 +249,96 @@ class MainViewModel(
     }
 
     fun logout() {
+        drinkingStatusJobs.values.toList().forEach { it.cancel() }
+        drinkingStatusJobs.clear()
         store.clearSession()
         _state.update {
             it.copy(
                 session = null,
+                isRefreshingBalance = false,
                 sendingWater = null,
                 isSendingTemporaryWater = false
             )
         }
         showMessage("已退出登录")
+    }
+
+    private fun monitorDrinkingCompletion(
+        session: UserSession,
+        deviceKey: String,
+        orderNumber: String
+    ) {
+        drinkingStatusJobs.remove(orderNumber)?.cancel()
+        val job = viewModelScope.launch {
+            repeat(DRINKING_STATUS_MAX_ATTEMPTS) { attempt ->
+                delay(
+                    when (attempt) {
+                        0 -> DRINKING_STATUS_INITIAL_DELAY_MS
+                        1 -> DRINKING_STATUS_SECOND_DELAY_MS
+                        else -> DRINKING_STATUS_INTERVAL_MS
+                    }
+                )
+                if (_state.value.session?.token != session.token) return@launch
+
+                val status = runCatching {
+                    api.fetchDrinkingStatus(
+                        token = session.token,
+                        deviceKey = deviceKey,
+                        orderNumber = orderNumber
+                    )
+                }.getOrNull()
+
+                if (status == DrinkingStatus.FINISHED) {
+                    refreshBalanceAfterDrinking(session)
+                    return@launch
+                }
+            }
+            showMessage("未能确认本次出水结束，请手动刷新余额")
+        }
+        drinkingStatusJobs[orderNumber] = job
+        job.invokeOnCompletion {
+            if (drinkingStatusJobs[orderNumber] === job) {
+                drinkingStatusJobs.remove(orderNumber)
+            }
+        }
+    }
+
+    private suspend fun refreshBalanceAfterDrinking(session: UserSession) {
+        val currentSession = _state.value.session
+        if (currentSession?.token != session.token) return
+
+        runCatching { api.fetchBalance(currentSession) }
+            .onSuccess { balance ->
+                val latestSession = _state.value.session
+                if (latestSession?.token != session.token) return@onSuccess
+                val updatedSession = latestSession.copy(balance = balance)
+                store.saveSession(updatedSession)
+                _state.update { it.copy(session = updatedSession) }
+                showMessage("接水已结束，余额已更新")
+            }
+            .onFailure { error ->
+                if (!handleInvalidSession(error)) {
+                    showMessage("接水已结束，余额更新失败，请手动刷新")
+                }
+            }
+    }
+
+    private fun handleInvalidSession(error: Throwable): Boolean {
+        if (error !is SessionInvalidException) return false
+
+        drinkingStatusJobs.values.toList().forEach { it.cancel() }
+        drinkingStatusJobs.clear()
+        store.clearSession()
+        _state.update {
+            it.copy(
+                session = null,
+                isRefreshingBalance = false,
+                sendingWater = null,
+                isSendingTemporaryWater = false
+            )
+        }
+        showMessage("当前帐号已在其他设备上登录，已退出当前登录")
+        return true
     }
 
     fun consumeMessage(id: Long) {
@@ -277,6 +368,13 @@ class MainViewModel(
 
     private fun showMessage(text: String) {
         _state.update { it.copy(message = UiMessage(messageIds.incrementAndGet(), text)) }
+    }
+
+    private companion object {
+        const val DRINKING_STATUS_INITIAL_DELAY_MS = 1_000L
+        const val DRINKING_STATUS_SECOND_DELAY_MS = 2_000L
+        const val DRINKING_STATUS_INTERVAL_MS = 5_000L
+        const val DRINKING_STATUS_MAX_ATTEMPTS = 120
     }
 }
 

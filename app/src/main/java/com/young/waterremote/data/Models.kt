@@ -22,5 +22,11 @@ enum class WaterType(val label: String) {
 
 data class CommandReceipt(val orderNumber: String?)
 
-class RemoteApiException(message: String, cause: Throwable? = null) : Exception(message, cause)
+enum class DrinkingStatus {
+    IN_PROGRESS,
+    FINISHED
+}
 
+open class RemoteApiException(message: String, cause: Throwable? = null) : Exception(message, cause)
+
+class SessionInvalidException : RemoteApiException("服务器没有返回当前用户信息")

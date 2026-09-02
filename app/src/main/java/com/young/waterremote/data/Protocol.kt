@@ -28,6 +28,12 @@ internal object Protocol {
         addProperty("device_key", deviceKey)
     }.toString()
 
+    fun drinkingStatusPayload(deviceKey: String, orderNumber: String): String =
+        JsonObject().apply {
+            addProperty("device_key", deviceKey)
+            addProperty("order_sn", orderNumber)
+        }.toString()
+
     fun envelope(act: String, encryptedData: String, token: String = ""): String {
         val now = System.currentTimeMillis()
         val header = JsonObject().apply {
@@ -91,12 +97,59 @@ internal object Protocol {
     fun parseBalance(json: String): String {
         val root = parseDecryptedObject(json)
         return root.getAsJsonObject("wallet")?.stringValue("balance")
-            ?: throw RemoteApiException("服务器没有返回余额")
+            ?: throw SessionInvalidException()
+    }
+
+    fun parseBalanceResponse(body: String): String {
+        val root = runCatching { JsonParser.parseString(body).asJsonObject }
+            .getOrElse { throw RemoteApiException("服务器返回了无法识别的数据", it) }
+        val data = root.get("data")
+        val encrypted = data?.takeUnless { it.isJsonNull }?.let { value ->
+            runCatching { value.asString }.getOrNull()
+        }
+        if (encrypted.isNullOrBlank() || encrypted.equals("null", ignoreCase = true)) {
+            throw SessionInvalidException()
+        }
+        return parseBalance(decryptResponse(body))
     }
 
     fun parseReceipt(json: String): CommandReceipt {
         val root = parseDecryptedObject(json)
         return CommandReceipt(orderNumber = root.stringValue("order_sn"))
+    }
+
+    fun parseDrinkingStatusResponse(
+        body: String,
+        expectedOrderNumber: String
+    ): DrinkingStatus {
+        val response = runCatching { JsonParser.parseString(body).asJsonObject }
+            .getOrElse { throw RemoteApiException("服务器返回了无法识别的数据", it) }
+        val code = response.get("code")?.let { value ->
+            runCatching { value.asInt }.getOrNull()
+        }
+        val message = serverMessage(response, "")
+
+        if (code == -1 && message.contains("订单还未结束")) {
+            return DrinkingStatus.IN_PROGRESS
+        }
+        if (code != 200) {
+            throw RemoteApiException(message.ifBlank { "无法查询出水状态" })
+        }
+
+        val decrypted = decryptResponse(body)
+        val order = parseDecryptedObject(decrypted).getAsJsonObject("order")
+            ?: throw RemoteApiException("出水状态响应中没有订单信息")
+        val orderNumber = order.stringValue("order_sn")
+            ?: throw RemoteApiException("出水状态响应中没有订单号")
+        if (orderNumber != expectedOrderNumber) {
+            throw RemoteApiException("出水状态返回了不匹配的订单")
+        }
+
+        return if (order.stringValue("order_state") == "4") {
+            DrinkingStatus.FINISHED
+        } else {
+            DrinkingStatus.IN_PROGRESS
+        }
     }
 
     private fun parseDecryptedObject(json: String): JsonObject = runCatching {
