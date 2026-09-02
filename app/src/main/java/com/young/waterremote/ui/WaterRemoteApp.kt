@@ -41,7 +41,6 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -553,9 +552,6 @@ private fun ControlScreen(
         item {
             DeviceStatusCard(bindings = state.bindings)
         }
-        item {
-            SafetyNotice()
-        }
     }
 }
 
@@ -721,30 +717,6 @@ private fun DeviceStatusCard(bindings: DeviceBindings) {
                 )
             }
         }
-    }
-}
-
-@Composable
-private fun SafetyNotice() {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
-            .background(MaterialTheme.colorScheme.errorContainer)
-            .padding(15.dp),
-        verticalAlignment = Alignment.Top
-    ) {
-        Icon(
-            Icons.Default.Warning,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onErrorContainer
-        )
-        Text(
-            text = "远程出水前请确认杯子已放稳，并注意热水烫伤风险。",
-            modifier = Modifier.padding(start = 11.dp),
-            color = MaterialTheme.colorScheme.onErrorContainer,
-            style = MaterialTheme.typography.bodyMedium
-        )
     }
 }
 
