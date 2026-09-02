@@ -9,9 +9,9 @@ import java.util.concurrent.atomic.AtomicLong
 internal object Protocol {
     private val messageSequence = AtomicLong(0)
 
-    fun mobilePayload(mobile: String, type: String = "login"): String = JsonObject().apply {
+    fun mobilePayload(mobile: String): String = JsonObject().apply {
         addProperty("mobile", mobile)
-        addProperty("type", type)
+        addProperty("type", "login")
     }.toString()
 
     fun loginPayload(mobile: String, code: String): String = JsonObject().apply {
@@ -23,14 +23,6 @@ internal object Protocol {
         addProperty("mobile", mobile)
         addProperty("pwd", password)
     }.toString()
-
-    fun registrationPayload(mobile: String, code: String, password: String): String =
-        JsonObject().apply {
-            addProperty("code", code)
-            addProperty("invite_code", "")
-            addProperty("mobile", mobile)
-            addProperty("password", password)
-        }.toString()
 
     fun devicePayload(deviceKey: String): String = JsonObject().apply {
         addProperty("device_key", deviceKey)

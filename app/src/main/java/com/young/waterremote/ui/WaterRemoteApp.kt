@@ -110,11 +110,6 @@ private enum class LoginMode {
     PASSWORD
 }
 
-private enum class AuthPage {
-    LOGIN,
-    REGISTER
-}
-
 @Composable
 fun WaterRemoteApp(viewModel: MainViewModel) {
     val state by viewModel.state.collectAsState()
@@ -140,11 +135,8 @@ fun WaterRemoteApp(viewModel: MainViewModel) {
             LoginScreen(
                 state = state,
                 onRequestCode = viewModel::requestCode,
-                onRequestRegistrationCode = viewModel::requestRegistrationCode,
                 onCodeLogin = viewModel::login,
-                onPasswordLogin = viewModel::loginWithPassword,
-                onRegister = viewModel::register,
-                onRegistrationHandled = viewModel::consumeRegistrationCompleted
+                onPasswordLogin = viewModel::loginWithPassword
             )
         }
 
@@ -166,40 +158,21 @@ fun WaterRemoteApp(viewModel: MainViewModel) {
 private fun LoginScreen(
     state: AppUiState,
     onRequestCode: (String) -> Unit,
-    onRequestRegistrationCode: (String) -> Unit,
     onCodeLogin: (String, String) -> Unit,
-    onPasswordLogin: (String, String) -> Unit,
-    onRegister: (String, String, String) -> Unit,
-    onRegistrationHandled: () -> Unit
+    onPasswordLogin: (String, String) -> Unit
 ) {
     var mobile by rememberSaveable { mutableStateOf("") }
     var code by rememberSaveable { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var loginModeName by rememberSaveable { mutableStateOf(LoginMode.CODE.name) }
-    var authPageName by rememberSaveable { mutableStateOf(AuthPage.LOGIN.name) }
     val loginMode = LoginMode.valueOf(loginModeName)
-    val authPage = AuthPage.valueOf(authPageName)
-    val submitBusy = if (authPage == AuthPage.REGISTER) {
-        state.isRegistering
-    } else {
-        state.isLoggingIn
-    }
+    val submitBusy = state.isLoggingIn
     val busy = state.isRequestingCode || submitBusy
 
-    LaunchedEffect(state.registrationCompleted) {
-        if (state.registrationCompleted) {
-            authPageName = AuthPage.LOGIN.name
-            code = ""
-            password = ""
-            onRegistrationHandled()
-        }
-    }
-
     fun submitLogin() {
-        when {
-            authPage == AuthPage.REGISTER -> onRegister(mobile, code, password)
-            loginMode == LoginMode.CODE -> onCodeLogin(mobile, code)
-            else -> onPasswordLogin(mobile, password)
+        when (loginMode) {
+            LoginMode.CODE -> onCodeLogin(mobile, code)
+            LoginMode.PASSWORD -> onPasswordLogin(mobile, password)
         }
     }
 
@@ -220,11 +193,7 @@ private fun LoginScreen(
             fontWeight = FontWeight.Bold
         )
         Text(
-            text = if (authPage == AuthPage.REGISTER) {
-                "使用手机号完成注册"
-            } else {
-                "登录后远程控制冷热水"
-            },
+            text = "登录后远程控制冷热水",
             modifier = Modifier.padding(top = 6.dp),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.bodyMedium
@@ -237,47 +206,24 @@ private fun LoginScreen(
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
         ) {
             Column(modifier = Modifier.padding(22.dp)) {
-                if (authPage == AuthPage.LOGIN) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 14.dp),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        FilterChip(
-                            selected = loginMode == LoginMode.CODE,
-                            onClick = { loginModeName = LoginMode.CODE.name },
-                            label = { Text("验证码登录") },
-                            modifier = Modifier.weight(1f)
-                        )
-                        FilterChip(
-                            selected = loginMode == LoginMode.PASSWORD,
-                            onClick = { loginModeName = LoginMode.PASSWORD.name },
-                            label = { Text("密码登录") },
-                            modifier = Modifier.weight(1f)
-                        )
-                    }
-                } else {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            "手机号注册",
-                            modifier = Modifier.weight(1f),
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        TextButton(onClick = {
-                            authPageName = AuthPage.LOGIN.name
-                            code = ""
-                            password = ""
-                        }) {
-                            Text("返回登录")
-                        }
-                    }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 14.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    FilterChip(
+                        selected = loginMode == LoginMode.CODE,
+                        onClick = { loginModeName = LoginMode.CODE.name },
+                        label = { Text("验证码登录") },
+                        modifier = Modifier.weight(1f)
+                    )
+                    FilterChip(
+                        selected = loginMode == LoginMode.PASSWORD,
+                        onClick = { loginModeName = LoginMode.PASSWORD.name },
+                        label = { Text("密码登录") },
+                        modifier = Modifier.weight(1f)
+                    )
                 }
 
                 OutlinedTextField(
@@ -296,7 +242,7 @@ private fun LoginScreen(
                     )
                 )
                 Spacer(modifier = Modifier.height(14.dp))
-                if (authPage == AuthPage.REGISTER || loginMode == LoginMode.CODE) {
+                if (loginMode == LoginMode.CODE) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
@@ -319,13 +265,7 @@ private fun LoginScreen(
                         )
                         Spacer(modifier = Modifier.width(10.dp))
                         FilledTonalButton(
-                            onClick = {
-                                if (authPage == AuthPage.REGISTER) {
-                                    onRequestRegistrationCode(mobile)
-                                } else {
-                                    onRequestCode(mobile)
-                                }
-                            },
+                            onClick = { onRequestCode(mobile) },
                             enabled = !busy && state.codeCooldownSeconds == 0,
                             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 16.dp)
                         ) {
@@ -346,10 +286,7 @@ private fun LoginScreen(
                         }
                     }
                 }
-                if (authPage == AuthPage.REGISTER || loginMode == LoginMode.PASSWORD) {
-                    if (authPage == AuthPage.REGISTER) {
-                        Spacer(modifier = Modifier.height(14.dp))
-                    }
+                if (loginMode == LoginMode.PASSWORD) {
                     OutlinedTextField(
                         value = password,
                         onValueChange = { value ->
@@ -386,24 +323,10 @@ private fun LoginScreen(
                         )
                     } else {
                         Text(
-                            if (authPage == AuthPage.REGISTER) "注册" else "登录",
+                            "登录",
                             fontSize = 16.sp,
                             fontWeight = FontWeight.SemiBold
                         )
-                    }
-                }
-                if (authPage == AuthPage.LOGIN) {
-                    TextButton(
-                        onClick = {
-                            authPageName = AuthPage.REGISTER.name
-                            code = ""
-                            password = ""
-                        },
-                        modifier = Modifier
-                            .align(Alignment.CenterHorizontally)
-                            .padding(top = 6.dp)
-                    ) {
-                        Text("注册手机号")
                     }
                 }
             }
