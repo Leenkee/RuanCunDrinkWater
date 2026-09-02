@@ -94,6 +94,8 @@ import com.young.waterremote.AppUiState
 import com.young.waterremote.MainViewModel
 import com.young.waterremote.PortraitCaptureActivity
 import com.young.waterremote.R
+import com.young.waterremote.WidgetAction
+import com.young.waterremote.WidgetActionRequest
 import com.young.waterremote.data.DeviceBindings
 import com.young.waterremote.data.WaterType
 import com.young.waterremote.ui.theme.ColdBlue
@@ -111,7 +113,11 @@ private enum class LoginMode {
 }
 
 @Composable
-fun WaterRemoteApp(viewModel: MainViewModel) {
+fun WaterRemoteApp(
+    viewModel: MainViewModel,
+    widgetActionRequest: WidgetActionRequest?,
+    onWidgetActionConsumed: (Long) -> Unit
+) {
     val state by viewModel.state.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val message = state.message
@@ -130,7 +136,9 @@ fun WaterRemoteApp(viewModel: MainViewModel) {
                 onSaveBindings = viewModel::saveBindings,
                 onSendWater = viewModel::sendWater,
                 onSendTemporaryWater = viewModel::sendTemporaryWater,
-                onLogout = viewModel::logout
+                onLogout = viewModel::logout,
+                widgetActionRequest = widgetActionRequest,
+                onWidgetActionConsumed = onWidgetActionConsumed
             )
         } else {
             LoginScreen(
@@ -343,7 +351,9 @@ private fun MainShell(
     onSaveBindings: (String, String) -> Unit,
     onSendWater: (WaterType) -> Unit,
     onSendTemporaryWater: (String) -> Unit,
-    onLogout: () -> Unit
+    onLogout: () -> Unit,
+    widgetActionRequest: WidgetActionRequest?,
+    onWidgetActionConsumed: (Long) -> Unit
 ) {
     val context = LocalContext.current
     var sectionName by rememberSaveable { mutableStateOf(MainSection.CONTROL.name) }
@@ -381,6 +391,37 @@ private fun MainShell(
         } else {
             temporaryCameraPermissionLauncher.launch(Manifest.permission.CAMERA)
         }
+    }
+
+    LaunchedEffect(widgetActionRequest?.id) {
+        val request = widgetActionRequest ?: return@LaunchedEffect
+        when (request.action) {
+            WidgetAction.HOT, WidgetAction.COLD -> {
+                sectionName = MainSection.CONTROL.name
+                pendingTemporaryDeviceKey = null
+                val type = if (request.action == WidgetAction.HOT) {
+                    WaterType.HOT
+                } else {
+                    WaterType.COLD
+                }
+                val isBound = when (type) {
+                    WaterType.HOT -> state.bindings.hasHot
+                    WaterType.COLD -> state.bindings.hasCold
+                }
+                if (isBound) {
+                    pendingWater = type
+                } else {
+                    sectionName = MainSection.DEVICES.name
+                    Toast.makeText(context, "请先绑定${type.label}设备", Toast.LENGTH_SHORT).show()
+                }
+            }
+            WidgetAction.TEMPORARY_SCAN -> {
+                sectionName = MainSection.CONTROL.name
+                pendingWater = null
+                scanTemporaryDevice()
+            }
+        }
+        onWidgetActionConsumed(request.id)
     }
 
     Scaffold(
@@ -667,7 +708,7 @@ private fun WaterControlCard(
             Text(
                 text = when {
                     loading -> "正在发送指令…"
-                    bound -> "点击立即出水"
+                    bound -> "点击开启饮水机"
                     else -> "未绑定 · 去绑定"
                 },
                 modifier = Modifier.padding(top = 5.dp),

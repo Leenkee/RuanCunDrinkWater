@@ -1,3 +1,8 @@
 <resources>
     <string name="app_name">山软喝水</string>
+    <string name="widget_name">山软喝水控制</string>
+    <string name="widget_description">从桌面启动热水、冷水或临时设备扫码</string>
+    <string name="widget_hot_water">热水</string>
+    <string name="widget_cold_water">冷水</string>
+    <string name="widget_temporary_scan">扫码</string>
 </resources>
