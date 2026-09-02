@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+    <!-- The legacy XiaoTian service only exposes these APIs over HTTP. -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">newxiaotian.tianji-inc.com</domain>
+        <domain includeSubdomains="false">iot.tianji-inc.com</domain>
+    </domain-config>
+</network-security-config>
+

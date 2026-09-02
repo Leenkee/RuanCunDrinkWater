@@ -1,0 +1,44 @@
+package com.young.waterremote.data
+
+import com.google.gson.JsonObject
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class LegacyCryptoTest {
+    @Test
+    fun encryptAndDecrypt_roundTripsUtf8Payload() {
+        val original = "{\"mobile\":\"13800138000\",\"type\":\"login\"}"
+
+        val encrypted = LegacyCrypto.encrypt(original)
+
+        assertFalse(encrypted.contains(original))
+        assertEquals(original, LegacyCrypto.decrypt(encrypted))
+    }
+
+    @Test
+    fun decryptResponse_parsesEncryptedData() {
+        val userJson = """{"mobile":"13800138000","token":"token-1","wallet":{"balance":"12.50"}}"""
+        val response = JsonObject().apply {
+            addProperty("data", LegacyCrypto.encrypt(userJson))
+        }.toString()
+
+        val decrypted = Protocol.decryptResponse(response)
+        val session = Protocol.parseSession(decrypted, "")
+
+        assertEquals("13800138000", session.mobile)
+        assertEquals("token-1", session.token)
+        assertEquals("12.50", session.balance)
+    }
+
+    @Test
+    fun inputValidator_acceptsOnlyExpectedLoginInputs() {
+        assertTrue(InputValidator.isValidMobile("13800138000"))
+        assertFalse(InputValidator.isValidMobile("1380013800"))
+        assertFalse(InputValidator.isValidMobile("23800138000"))
+        assertTrue(InputValidator.isValidCode("123456"))
+        assertFalse(InputValidator.isValidCode("12a456"))
+    }
+}
+
