@@ -130,6 +130,7 @@ fun WaterRemoteApp(viewModel: MainViewModel) {
                 onRefreshBalance = viewModel::refreshBalance,
                 onSaveBindings = viewModel::saveBindings,
                 onSendWater = viewModel::sendWater,
+                onSendTemporaryWater = viewModel::sendTemporaryWater,
                 onLogout = viewModel::logout
             )
         } else {
@@ -342,11 +343,42 @@ private fun MainShell(
     onRefreshBalance: () -> Unit,
     onSaveBindings: (String, String) -> Unit,
     onSendWater: (WaterType) -> Unit,
+    onSendTemporaryWater: (String) -> Unit,
     onLogout: () -> Unit
 ) {
+    val context = LocalContext.current
     var sectionName by rememberSaveable { mutableStateOf(MainSection.CONTROL.name) }
     val section = MainSection.valueOf(sectionName)
     var pendingWater by remember { mutableStateOf<WaterType?>(null) }
+    var pendingTemporaryDeviceKey by rememberSaveable { mutableStateOf<String?>(null) }
+
+    val temporaryScanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
+        val contents = result.contents?.trim()
+        if (contents.isNullOrBlank()) {
+            Toast.makeText(context, "未扫描到二维码", Toast.LENGTH_SHORT).show()
+        } else {
+            pendingTemporaryDeviceKey = contents
+        }
+    }
+    val temporaryCameraPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            temporaryScanLauncher.launch(temporaryScanOptions())
+        } else {
+            Toast.makeText(context, "需要相机权限才能扫描临时设备", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun scanTemporaryDevice() {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            temporaryScanLauncher.launch(temporaryScanOptions())
+        } else {
+            temporaryCameraPermissionLauncher.launch(Manifest.permission.CAMERA)
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -401,6 +433,7 @@ private fun MainShell(
                 state = state,
                 contentPadding = contentPadding,
                 onRefreshBalance = onRefreshBalance,
+                onRequestTemporaryWater = { scanTemporaryDevice() },
                 onRequestWater = { type ->
                     val isBound = when (type) {
                         WaterType.HOT -> state.bindings.hasHot
@@ -433,6 +466,16 @@ private fun MainShell(
             }
         )
     }
+
+    pendingTemporaryDeviceKey?.let { deviceKey ->
+        TemporaryWaterConfirmationDialog(
+            onDismiss = { pendingTemporaryDeviceKey = null },
+            onConfirm = {
+                pendingTemporaryDeviceKey = null
+                onSendTemporaryWater(deviceKey)
+            }
+        )
+    }
 }
 
 @Composable
@@ -440,6 +483,7 @@ private fun ControlScreen(
     state: AppUiState,
     contentPadding: PaddingValues,
     onRefreshBalance: () -> Unit,
+    onRequestTemporaryWater: () -> Unit,
     onRequestWater: (WaterType) -> Unit
 ) {
     LazyColumn(
@@ -471,7 +515,7 @@ private fun ControlScreen(
                     type = WaterType.HOT,
                     bound = state.bindings.hasHot,
                     loading = state.sendingWater == WaterType.HOT,
-                    enabled = state.sendingWater == null,
+                    enabled = state.sendingWater == null && !state.isSendingTemporaryWater,
                     onClick = { onRequestWater(WaterType.HOT) }
                 )
                 WaterControlCard(
@@ -479,10 +523,49 @@ private fun ControlScreen(
                     type = WaterType.COLD,
                     bound = state.bindings.hasCold,
                     loading = state.sendingWater == WaterType.COLD,
-                    enabled = state.sendingWater == null,
+                    enabled = state.sendingWater == null && !state.isSendingTemporaryWater,
                     onClick = { onRequestWater(WaterType.COLD) }
                 )
             }
+        }
+        item {
+            OutlinedButton(
+                onClick = onRequestTemporaryWater,
+                enabled = state.sendingWater == null && !state.isSendingTemporaryWater,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp),
+                shape = RoundedCornerShape(18.dp)
+            ) {
+                if (state.isSendingTemporaryWater) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(22.dp),
+                        strokeWidth = 2.dp
+                    )
+                } else {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_qr_code),
+                        contentDescription = null
+                    )
+                }
+                Text(
+                    text = if (state.isSendingTemporaryWater) {
+                        "正在向临时设备发送指令…"
+                    } else {
+                        "扫码临时设备喝水"
+                    },
+                    modifier = Modifier.padding(start = 9.dp)
+                )
+            }
+            Text(
+                text = "二维码仅用于本次出水，不会更改已绑定设备",
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 7.dp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall,
+                textAlign = TextAlign.Center
+            )
         }
         item {
             DeviceStatusCard(bindings = state.bindings)
@@ -991,6 +1074,45 @@ private fun WaterConfirmationDialog(
     )
 }
 
+@Composable
+private fun TemporaryWaterConfirmationDialog(
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = {
+            Surface(
+                modifier = Modifier.size(52.dp),
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.primaryContainer
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_qr_code),
+                    contentDescription = null,
+                    modifier = Modifier.padding(13.dp),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+        },
+        title = { Text("使用临时设备出水？") },
+        text = {
+            Text(
+                "请确认杯子已放在刚刚扫描的出水口下方。二维码可能对应热水，请避免触碰出水口；确认后将立即发送出水指令，且不会保存该设备。"
+            )
+        },
+        confirmButton = {
+            Button(onClick = onConfirm) {
+                Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null)
+                Text("确认出水", modifier = Modifier.padding(start = 7.dp))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        }
+    )
+}
+
 private fun maskMobile(mobile: String): String {
     if (mobile.length < 7) return mobile.ifBlank { "已登录手机号" }
     return mobile.take(3) + " **** " + mobile.takeLast(4)
@@ -1000,6 +1122,15 @@ private fun scanOptions(typeName: String) = ScanOptions().apply {
     val label = if (typeName == WaterType.HOT.name) "热水" else "冷水"
     setDesiredBarcodeFormats(ScanOptions.QR_CODE)
     setPrompt("扫描${label}设备二维码")
+    setBeepEnabled(true)
+    setBarcodeImageEnabled(false)
+    setCaptureActivity(PortraitCaptureActivity::class.java)
+    setOrientationLocked(true)
+}
+
+private fun temporaryScanOptions() = ScanOptions().apply {
+    setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+    setPrompt("扫描临时设备二维码")
     setBeepEnabled(true)
     setBarcodeImageEnabled(false)
     setCaptureActivity(PortraitCaptureActivity::class.java)

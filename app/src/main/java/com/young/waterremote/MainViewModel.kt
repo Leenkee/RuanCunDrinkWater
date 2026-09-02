@@ -28,6 +28,7 @@ data class AppUiState(
     val isLoggingIn: Boolean = false,
     val isRefreshingBalance: Boolean = false,
     val sendingWater: WaterType? = null,
+    val isSendingTemporaryWater: Boolean = false,
     val codeCooldownSeconds: Int = 0,
     val message: UiMessage? = null
 ) {
@@ -169,10 +170,6 @@ class MainViewModel(
 
     fun sendWater(type: WaterType) {
         val current = _state.value
-        val session = current.session ?: run {
-            showMessage("请先登录")
-            return
-        }
         val deviceKey = when (type) {
             WaterType.HOT -> current.bindings.hotKey
             WaterType.COLD -> current.bindings.coldKey
@@ -181,20 +178,61 @@ class MainViewModel(
             showMessage("请先绑定${type.label}设备")
             return
         }
-        if (current.sendingWater != null) return
+
+        sendWaterCommand(
+            deviceKey = deviceKey,
+            sendingType = type,
+            successMessage = "${type.label}指令已发送"
+        )
+    }
+
+    fun sendTemporaryWater(deviceKey: String) {
+        val normalized = deviceKey.trim()
+        if (normalized.isBlank()) {
+            showMessage("临时设备二维码无效，请重新扫描")
+            return
+        }
+
+        sendWaterCommand(
+            deviceKey = normalized,
+            sendingType = null,
+            successMessage = "临时设备出水指令已发送"
+        )
+    }
+
+    private fun sendWaterCommand(
+        deviceKey: String,
+        sendingType: WaterType?,
+        successMessage: String
+    ) {
+        val current = _state.value
+        val session = current.session ?: run {
+            showMessage("请先登录")
+            return
+        }
+        if (current.sendingWater != null || current.isSendingTemporaryWater) return
 
         viewModelScope.launch {
-            _state.update { it.copy(sendingWater = type) }
+            _state.update {
+                it.copy(
+                    sendingWater = sendingType,
+                    isSendingTemporaryWater = sendingType == null
+                )
+            }
             runCatching { api.sendCommand(session.token, deviceKey) }
                 .onSuccess { receipt ->
-                    _state.update { it.copy(sendingWater = null) }
+                    _state.update {
+                        it.copy(sendingWater = null, isSendingTemporaryWater = false)
+                    }
                     val suffix = receipt.orderNumber?.takeIf { it.isNotBlank() }
                         ?.let { "，单号 ${it.takeLast(8)}" }
                         .orEmpty()
-                    showMessage("${type.label}指令已发送$suffix")
+                    showMessage("$successMessage$suffix")
                 }
                 .onFailure {
-                    _state.update { it.copy(sendingWater = null) }
+                    _state.update {
+                        it.copy(sendingWater = null, isSendingTemporaryWater = false)
+                    }
                     showFailure(it)
                 }
         }
@@ -202,7 +240,13 @@ class MainViewModel(
 
     fun logout() {
         store.clearSession()
-        _state.update { it.copy(session = null, sendingWater = null) }
+        _state.update {
+            it.copy(
+                session = null,
+                sendingWater = null,
+                isSendingTemporaryWater = false
+            )
+        }
         showMessage("已退出登录")
     }
 
