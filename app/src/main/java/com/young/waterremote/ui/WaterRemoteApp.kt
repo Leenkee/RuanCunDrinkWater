@@ -5,7 +5,6 @@ import android.content.pm.PackageManager
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -215,8 +214,6 @@ private fun LoginScreen(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Spacer(modifier = Modifier.height(20.dp))
-        AppMark(modifier = Modifier.size(112.dp))
-        Spacer(modifier = Modifier.height(16.dp))
         Text(
             text = "山软喝水",
             style = MaterialTheme.typography.headlineLarge,
@@ -406,7 +403,7 @@ private fun LoginScreen(
                             .align(Alignment.CenterHorizontally)
                             .padding(top = 6.dp)
                     ) {
-                        Text("注册账户")
+                        Text("注册手机号")
                     }
                 }
             }
@@ -1068,22 +1065,6 @@ private fun WaterConfirmationDialog(
             TextButton(onClick = onDismiss) { Text("取消") }
         }
     )
-}
-
-@Composable
-private fun AppMark(modifier: Modifier = Modifier) {
-    Surface(
-        modifier = modifier,
-        shape = CircleShape,
-        color = MaterialTheme.colorScheme.primaryContainer,
-        shadowElevation = 8.dp
-    ) {
-        Image(
-            painter = painterResource(R.drawable.student_drinking_icon),
-            contentDescription = null,
-            modifier = Modifier.fillMaxSize()
-        )
-    }
 }
 
 private fun maskMobile(mobile: String): String {
