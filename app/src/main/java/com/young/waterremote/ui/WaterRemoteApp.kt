@@ -93,6 +93,7 @@ import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import com.young.waterremote.AppUiState
 import com.young.waterremote.MainViewModel
+import com.young.waterremote.PortraitCaptureActivity
 import com.young.waterremote.R
 import com.young.waterremote.data.DeviceBindings
 import com.young.waterremote.data.WaterType
@@ -1001,5 +1002,6 @@ private fun scanOptions(typeName: String) = ScanOptions().apply {
     setPrompt("扫描${label}设备二维码")
     setBeepEnabled(true)
     setBarcodeImageEnabled(false)
-    setOrientationLocked(false)
+    setCaptureActivity(PortraitCaptureActivity::class.java)
+    setOrientationLocked(true)
 }
