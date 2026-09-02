@@ -100,6 +100,35 @@ class MainViewModel(
         }
     }
 
+    fun loginWithPassword(mobile: String, password: String) {
+        val normalizedMobile = mobile.trim()
+        when {
+            !InputValidator.isValidMobile(normalizedMobile) -> {
+                showMessage("请输入正确的 11 位手机号")
+                return
+            }
+            !InputValidator.isValidPassword(password) -> {
+                showMessage("请输入帐号密码")
+                return
+            }
+            _state.value.isLoggingIn -> return
+        }
+
+        viewModelScope.launch {
+            _state.update { it.copy(isLoggingIn = true) }
+            runCatching { api.loginWithPassword(normalizedMobile, password) }
+                .onSuccess { session ->
+                    store.saveSession(session)
+                    _state.update { it.copy(session = session, isLoggingIn = false) }
+                    showMessage("登录成功")
+                }
+                .onFailure {
+                    _state.update { it.copy(isLoggingIn = false) }
+                    showFailure(it)
+                }
+        }
+    }
+
     fun refreshBalance() {
         val session = _state.value.session ?: run {
             showMessage("请先登录")
@@ -221,4 +250,3 @@ class MainViewModelFactory(context: Context) : ViewModelProvider.Factory {
         throw IllegalArgumentException("Unknown ViewModel: ${modelClass.name}")
     }
 }
-

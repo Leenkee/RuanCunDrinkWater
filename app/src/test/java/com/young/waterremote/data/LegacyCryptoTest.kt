@@ -1,6 +1,7 @@
 package com.young.waterremote.data
 
 import com.google.gson.JsonObject
+import com.google.gson.JsonParser
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -39,6 +40,20 @@ class LegacyCryptoTest {
         assertFalse(InputValidator.isValidMobile("23800138000"))
         assertTrue(InputValidator.isValidCode("123456"))
         assertFalse(InputValidator.isValidCode("12a456"))
+        assertTrue(InputValidator.isValidPassword("example-password@1"))
+        assertFalse(InputValidator.isValidPassword(""))
+    }
+
+    @Test
+    fun passwordLoginPayload_usesLegacyPwdField() {
+        val payload = Protocol.passwordLoginPayload(
+            mobile = "13800138000",
+            password = "example-password@1"
+        )
+        val json = JsonParser.parseString(payload).asJsonObject
+
+        assertEquals("13800138000", json.get("mobile").asString)
+        assertEquals("example-password@1", json.get("pwd").asString)
+        assertFalse(json.has("password"))
     }
 }
-

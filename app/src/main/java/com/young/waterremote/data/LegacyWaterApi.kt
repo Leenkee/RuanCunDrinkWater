@@ -32,6 +32,15 @@ class LegacyWaterApi(
         return Protocol.parseSession(decrypted, mobile)
     }
 
+    suspend fun loginWithPassword(mobile: String, password: String): UserSession {
+        val encrypted = LegacyCrypto.encrypt(Protocol.passwordLoginPayload(mobile, password))
+        val decrypted = post(
+            url = "$USER_API/loginByPwd",
+            envelope = Protocol.envelope("loginByPwd", encrypted)
+        )
+        return Protocol.parseSession(decrypted, mobile)
+    }
+
     suspend fun fetchBalance(session: UserSession): String {
         val encrypted = LegacyCrypto.encrypt(Protocol.mobilePayload(session.mobile))
         val decrypted = post(
@@ -83,7 +92,6 @@ class LegacyWaterApi(
         const val DRINK_COMMAND_API =
             "http://iot.tianji-inc.com/index.php/drinking/send_command/send"
         const val USER_AGENT =
-            "Mozilla/5.0 (Linux; Android) AppleWebKit/537.36 Mobile WaterRemote/1.0"
+            "Mozilla/5.0 (Linux; Android) AppleWebKit/537.36 Mobile WaterRemote/1.1"
     }
 }
-

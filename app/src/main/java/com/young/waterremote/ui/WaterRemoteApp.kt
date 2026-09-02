@@ -51,6 +51,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -82,6 +83,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -100,6 +102,11 @@ private enum class MainSection(val title: String, val label: String) {
     CONTROL("饮水机遥控", "控制"),
     DEVICES("设备绑定", "设备"),
     ACCOUNT("我的账户", "账户")
+}
+
+private enum class LoginMode {
+    CODE,
+    PASSWORD
 }
 
 @Composable
@@ -127,7 +134,8 @@ fun WaterRemoteApp(viewModel: MainViewModel) {
             LoginScreen(
                 state = state,
                 onRequestCode = viewModel::requestCode,
-                onLogin = viewModel::login
+                onCodeLogin = viewModel::login,
+                onPasswordLogin = viewModel::loginWithPassword
             )
         }
 
@@ -149,11 +157,22 @@ fun WaterRemoteApp(viewModel: MainViewModel) {
 private fun LoginScreen(
     state: AppUiState,
     onRequestCode: (String) -> Unit,
-    onLogin: (String, String) -> Unit
+    onCodeLogin: (String, String) -> Unit,
+    onPasswordLogin: (String, String) -> Unit
 ) {
     var mobile by rememberSaveable { mutableStateOf("") }
     var code by rememberSaveable { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    var loginModeName by rememberSaveable { mutableStateOf(LoginMode.CODE.name) }
+    val loginMode = LoginMode.valueOf(loginModeName)
     val busy = state.isRequestingCode || state.isLoggingIn
+
+    fun submitLogin() {
+        when (loginMode) {
+            LoginMode.CODE -> onCodeLogin(mobile, code)
+            LoginMode.PASSWORD -> onPasswordLogin(mobile, password)
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -193,10 +212,34 @@ private fun LoginScreen(
                     fontWeight = FontWeight.SemiBold
                 )
                 Text(
-                    text = "使用小天同学账户接收验证码",
+                    text = if (loginMode == LoginMode.CODE) {
+                        "使用小天同学账户接收验证码"
+                    } else {
+                        "使用小天同学帐号密码登录"
+                    },
                     modifier = Modifier.padding(top = 4.dp, bottom = 20.dp),
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 14.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    FilterChip(
+                        selected = loginMode == LoginMode.CODE,
+                        onClick = { loginModeName = LoginMode.CODE.name },
+                        label = { Text("验证码登录") },
+                        modifier = Modifier.weight(1f)
+                    )
+                    FilterChip(
+                        selected = loginMode == LoginMode.PASSWORD,
+                        onClick = { loginModeName = LoginMode.PASSWORD.name },
+                        label = { Text("密码登录") },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
 
                 OutlinedTextField(
                     value = mobile,
@@ -206,7 +249,7 @@ private fun LoginScreen(
                     modifier = Modifier.fillMaxWidth(),
                     enabled = !state.isLoggingIn,
                     singleLine = true,
-                    label = { Text("手机号码") },
+                    label = { Text(if (loginMode == LoginMode.CODE) "手机号码" else "帐号（手机号）") },
                     leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null) },
                     keyboardOptions = KeyboardOptions(
                         keyboardType = KeyboardType.Phone,
@@ -214,50 +257,71 @@ private fun LoginScreen(
                     )
                 )
                 Spacer(modifier = Modifier.height(14.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    OutlinedTextField(
-                        value = code,
-                        onValueChange = { value ->
-                            if (value.length <= 8 && value.all(Char::isDigit)) code = value
-                        },
-                        modifier = Modifier.weight(1f),
-                        enabled = !state.isLoggingIn,
-                        singleLine = true,
-                        label = { Text("验证码") },
-                        leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
-                        keyboardOptions = KeyboardOptions(
-                            keyboardType = KeyboardType.Number,
-                            imeAction = ImeAction.Done
-                        ),
-                        keyboardActions = KeyboardActions(
-                            onDone = { onLogin(mobile, code) }
-                        )
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    FilledTonalButton(
-                        onClick = { onRequestCode(mobile) },
-                        enabled = !busy && state.codeCooldownSeconds == 0,
-                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 16.dp)
+                if (loginMode == LoginMode.CODE) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        if (state.isRequestingCode) {
-                            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                        } else {
-                            Text(
-                                if (state.codeCooldownSeconds > 0) {
-                                    "${state.codeCooldownSeconds}s"
-                                } else {
-                                    "获取验证码"
-                                }
-                            )
+                        OutlinedTextField(
+                            value = code,
+                            onValueChange = { value ->
+                                if (value.length <= 8 && value.all(Char::isDigit)) code = value
+                            },
+                            modifier = Modifier.weight(1f),
+                            enabled = !state.isLoggingIn,
+                            singleLine = true,
+                            label = { Text("验证码") },
+                            leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
+                            keyboardOptions = KeyboardOptions(
+                                keyboardType = KeyboardType.Number,
+                                imeAction = ImeAction.Done
+                            ),
+                            keyboardActions = KeyboardActions(onDone = { submitLogin() })
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        FilledTonalButton(
+                            onClick = { onRequestCode(mobile) },
+                            enabled = !busy && state.codeCooldownSeconds == 0,
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 16.dp)
+                        ) {
+                            if (state.isRequestingCode) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    strokeWidth = 2.dp
+                                )
+                            } else {
+                                Text(
+                                    if (state.codeCooldownSeconds > 0) {
+                                        "${state.codeCooldownSeconds}s"
+                                    } else {
+                                        "获取验证码"
+                                    }
+                                )
+                            }
                         }
                     }
+                } else {
+                    OutlinedTextField(
+                        value = password,
+                        onValueChange = { value ->
+                            if (value.length <= 128) password = value
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !state.isLoggingIn,
+                        singleLine = true,
+                        label = { Text("密码") },
+                        leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Password,
+                            imeAction = ImeAction.Done
+                        ),
+                        keyboardActions = KeyboardActions(onDone = { submitLogin() })
+                    )
                 }
 
                 Button(
-                    onClick = { onLogin(mobile, code) },
+                    onClick = { submitLogin() },
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(top = 22.dp)
@@ -278,7 +342,7 @@ private fun LoginScreen(
             }
         }
         Text(
-            text = "本应用直接连接饮水机服务，登录信息仅保存在本机。",
+            text = "本应用直接连接饮水机服务，帐号密码不会保存在本机。",
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 18.dp),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.bodySmall,

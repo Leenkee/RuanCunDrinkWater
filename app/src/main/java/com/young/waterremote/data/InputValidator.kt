@@ -7,5 +7,6 @@ object InputValidator {
     fun isValidMobile(value: String): Boolean = mobilePattern.matches(value.trim())
 
     fun isValidCode(value: String): Boolean = codePattern.matches(value.trim())
-}
 
+    fun isValidPassword(value: String): Boolean = value.isNotEmpty() && value.length <= 128
+}

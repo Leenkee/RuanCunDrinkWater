@@ -3,8 +3,12 @@ package com.young.waterremote.data
 import android.os.Build
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
+import java.util.Locale
+import java.util.concurrent.atomic.AtomicLong
 
 internal object Protocol {
+    private val messageSequence = AtomicLong(0)
+
     fun mobilePayload(mobile: String): String = JsonObject().apply {
         addProperty("mobile", mobile)
         addProperty("type", "login")
@@ -15,20 +19,29 @@ internal object Protocol {
         addProperty("mobile", mobile)
     }.toString()
 
+    fun passwordLoginPayload(mobile: String, password: String): String = JsonObject().apply {
+        addProperty("mobile", mobile)
+        addProperty("pwd", password)
+    }.toString()
+
     fun devicePayload(deviceKey: String): String = JsonObject().apply {
         addProperty("device_key", deviceKey)
     }.toString()
 
     fun envelope(act: String, encryptedData: String, token: String = ""): String {
+        val now = System.currentTimeMillis()
         val header = JsonObject().apply {
             addProperty("act", act)
             addProperty("device_type", "android")
-            addProperty("msg_id", System.currentTimeMillis())
-            addProperty("source_model", "${Build.MANUFACTURER}_${Build.MODEL}")
-            addProperty("source_sys_version", Build.VERSION.RELEASE.orEmpty())
-            addProperty("source_version", "1.4.1")
+            addProperty("msg_id", now * 1_000 + messageSequence.incrementAndGet() % 1_000)
+            addProperty(
+                "source_model",
+                "${Build.MANUFACTURER.lowercase(Locale.ROOT)}_${Build.MODEL}"
+            )
+            addProperty("source_sys_version", Build.DISPLAY)
+            addProperty("source_version", "1.4.26")
             addProperty("token", token)
-            addProperty("uuid", "")
+            addProperty("uuid", now / 1_000)
         }
         return JsonObject().apply {
             addProperty("data", encryptedData)
