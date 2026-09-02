@@ -390,23 +390,6 @@ private fun MainShell(
                         overflow = TextOverflow.Ellipsis,
                         fontWeight = FontWeight.SemiBold
                     )
-                },
-                actions = {
-                    if (section != MainSection.DEVICES) {
-                        IconButton(
-                            onClick = onRefreshBalance,
-                            enabled = !state.isRefreshingBalance
-                        ) {
-                            if (state.isRefreshingBalance) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(21.dp),
-                                    strokeWidth = 2.dp
-                                )
-                            } else {
-                                Icon(Icons.Default.Refresh, contentDescription = "刷新余额")
-                            }
-                        }
-                    }
                 }
             )
         },
