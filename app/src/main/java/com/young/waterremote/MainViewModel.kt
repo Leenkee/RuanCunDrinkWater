@@ -385,7 +385,7 @@ class MainViewModel(
                 isSendingTemporaryWater = false
             )
         }
-        showMessage("当前帐号已在其他设备上登录，已退出当前登录")
+        showMessage("当前账号已在其他设备上登录，已退出当前登录")
         return true
     }
 
