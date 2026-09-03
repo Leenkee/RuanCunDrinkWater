@@ -32,6 +32,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Build
@@ -41,6 +42,7 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -53,6 +55,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -78,6 +81,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -91,12 +95,14 @@ import androidx.core.content.ContextCompat
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import com.young.waterremote.AppUiState
+import com.young.waterremote.BuildConfig
 import com.young.waterremote.MainViewModel
 import com.young.waterremote.PortraitCaptureActivity
 import com.young.waterremote.R
 import com.young.waterremote.WidgetAction
 import com.young.waterremote.WidgetActionRequest
 import com.young.waterremote.data.DeviceBindings
+import com.young.waterremote.data.AvailableRelease
 import com.young.waterremote.data.WaterType
 import com.young.waterremote.ui.theme.ColdBlue
 import com.young.waterremote.ui.theme.HotRed
@@ -120,6 +126,8 @@ fun WaterRemoteApp(
 ) {
     val state by viewModel.state.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
+    val uriHandler = LocalUriHandler.current
+    var showSettings by rememberSaveable { mutableStateOf(false) }
     val message = state.message
 
     LaunchedEffect(message?.id) {
@@ -129,9 +137,16 @@ fun WaterRemoteApp(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        if (state.isLoggedIn) {
+        if (showSettings) {
+            SettingsScreen(
+                state = state,
+                onBack = { showSettings = false },
+                onCheckForUpdates = viewModel::checkForUpdates
+            )
+        } else if (state.isLoggedIn) {
             MainShell(
                 state = state,
+                onOpenSettings = { showSettings = true },
                 onRefreshBalance = viewModel::refreshBalance,
                 onAccountEntered = viewModel::refreshBalanceSilently,
                 onSaveBindings = viewModel::saveBindings,
@@ -144,6 +159,7 @@ fun WaterRemoteApp(
         } else {
             LoginScreen(
                 state = state,
+                onOpenSettings = { showSettings = true },
                 onRequestCode = viewModel::requestCode,
                 onCodeLogin = viewModel::login,
                 onPasswordLogin = viewModel::loginWithPassword
@@ -157,9 +173,20 @@ fun WaterRemoteApp(
                 .padding(
                     start = 16.dp,
                     end = 16.dp,
-                    bottom = if (state.isLoggedIn) 90.dp else 20.dp
+                    bottom = if (state.isLoggedIn && !showSettings) 90.dp else 20.dp
                 )
                 .navigationBarsPadding()
+        )
+    }
+
+    state.availableRelease?.let { release ->
+        UpdateAvailableDialog(
+            release = release,
+            onDismiss = viewModel::dismissAvailableRelease,
+            onDownload = {
+                viewModel.dismissAvailableRelease()
+                uriHandler.openUri(release.downloadUrl)
+            }
         )
     }
 }
@@ -167,6 +194,7 @@ fun WaterRemoteApp(
 @Composable
 private fun LoginScreen(
     state: AppUiState,
+    onOpenSettings: () -> Unit,
     onRequestCode: (String) -> Unit,
     onCodeLogin: (String, String) -> Unit,
     onPasswordLogin: (String, String) -> Unit
@@ -186,17 +214,21 @@ private fun LoginScreen(
         }
     }
 
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .windowInsetsPadding(WindowInsets.safeDrawing)
-            .imePadding()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 24.dp, vertical = 28.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Spacer(modifier = Modifier.height(20.dp))
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.safeDrawing)
+                .imePadding()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp, vertical = 28.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Spacer(modifier = Modifier.height(20.dp))
         Text(
             text = "山软喝水",
             style = MaterialTheme.typography.headlineLarge,
@@ -349,6 +381,16 @@ private fun LoginScreen(
                 )
             }
         }
+        }
+        IconButton(
+            onClick = onOpenSettings,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .windowInsetsPadding(WindowInsets.safeDrawing)
+                .padding(top = 4.dp, end = 8.dp)
+        ) {
+            Icon(Icons.Default.Settings, contentDescription = "设置")
+        }
     }
 }
 
@@ -356,6 +398,7 @@ private fun LoginScreen(
 @Composable
 private fun MainShell(
     state: AppUiState,
+    onOpenSettings: () -> Unit,
     onRefreshBalance: () -> Unit,
     onAccountEntered: () -> Unit,
     onSaveBindings: (String, String) -> Unit,
@@ -444,6 +487,11 @@ private fun MainShell(
                         overflow = TextOverflow.Ellipsis,
                         fontWeight = FontWeight.SemiBold
                     )
+                },
+                actions = {
+                    IconButton(onClick = onOpenSettings) {
+                        Icon(Icons.Default.Settings, contentDescription = "设置")
+                    }
                 }
             )
         },
@@ -513,6 +561,93 @@ private fun MainShell(
             }
         )
     }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SettingsScreen(
+    state: AppUiState,
+    onBack: () -> Unit,
+    onCheckForUpdates: () -> Unit
+) {
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("设置", fontWeight = FontWeight.SemiBold) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                    }
+                }
+            )
+        }
+    ) { contentPadding ->
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background),
+            contentPadding = PaddingValues(
+                start = 18.dp,
+                top = contentPadding.calculateTopPadding() + 12.dp,
+                end = 18.dp,
+                bottom = contentPadding.calculateBottomPadding() + 24.dp
+            )
+        ) {
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(20.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surface
+                    )
+                ) {
+                    ListItem(
+                        headlineContent = { Text("检查更新") },
+                        supportingContent = {
+                            Text("当前版本 ${BuildConfig.VERSION_NAME}")
+                        },
+                        leadingContent = {
+                            Icon(Icons.Default.Refresh, contentDescription = null)
+                        },
+                        trailingContent = {
+                            if (state.isCheckingUpdate) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(22.dp),
+                                    strokeWidth = 2.dp
+                                )
+                            }
+                        },
+                        modifier = Modifier.clickable(
+                            enabled = !state.isCheckingUpdate,
+                            onClick = onCheckForUpdates
+                        )
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun UpdateAvailableDialog(
+    release: AvailableRelease,
+    onDismiss: () -> Unit,
+    onDownload: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Default.Refresh, contentDescription = null) },
+        title = { Text("发现新版本 ${release.versionName}") },
+        text = {
+            Text("当前版本为 ${BuildConfig.VERSION_NAME}，可前往下载并安装最新版本。")
+        },
+        confirmButton = {
+            Button(onClick = onDownload) { Text("下载更新") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("稍后") }
+        }
+    )
 }
 
 @Composable

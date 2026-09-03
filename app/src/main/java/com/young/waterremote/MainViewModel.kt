@@ -4,8 +4,10 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.young.waterremote.data.AvailableRelease
 import com.young.waterremote.data.DeviceBindings
 import com.young.waterremote.data.DrinkingStatus
+import com.young.waterremote.data.GitHubUpdateChecker
 import com.young.waterremote.data.InputValidator
 import com.young.waterremote.data.LegacyWaterApi
 import com.young.waterremote.data.RemoteApiException
@@ -13,6 +15,7 @@ import com.young.waterremote.data.SessionStore
 import com.young.waterremote.data.SessionInvalidException
 import com.young.waterremote.data.UserSession
 import com.young.waterremote.data.WaterType
+import com.young.waterremote.data.VersionComparator
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -32,6 +35,8 @@ data class AppUiState(
     val isRefreshingBalance: Boolean = false,
     val sendingWater: WaterType? = null,
     val isSendingTemporaryWater: Boolean = false,
+    val isCheckingUpdate: Boolean = false,
+    val availableRelease: AvailableRelease? = null,
     val codeCooldownSeconds: Int = 0,
     val message: UiMessage? = null
 ) {
@@ -40,7 +45,8 @@ data class AppUiState(
 
 class MainViewModel(
     private val api: LegacyWaterApi,
-    private val store: SessionStore
+    private val store: SessionStore,
+    private val updateChecker: GitHubUpdateChecker
 ) : ViewModel() {
     private val messageIds = AtomicLong(0)
     private val drinkingStatusJobs = mutableMapOf<String, Job>()
@@ -176,6 +182,38 @@ class MainViewModel(
                 else -> "冷热水设备已绑定"
             }
         )
+    }
+
+    fun checkForUpdates() {
+        if (_state.value.isCheckingUpdate) return
+        val repository = BuildConfig.GITHUB_REPOSITORY.trim()
+        if (repository.isBlank()) {
+            showMessage("更新服务尚未配置")
+            return
+        }
+
+        viewModelScope.launch {
+            _state.update { it.copy(isCheckingUpdate = true) }
+            runCatching { updateChecker.fetchLatestRelease(repository) }
+                .onSuccess { release ->
+                    if (VersionComparator.isNewer(release.versionName, BuildConfig.VERSION_NAME)) {
+                        _state.update {
+                            it.copy(isCheckingUpdate = false, availableRelease = release)
+                        }
+                    } else {
+                        _state.update { it.copy(isCheckingUpdate = false) }
+                        showMessage("当前已是最新版本（${BuildConfig.VERSION_NAME}）")
+                    }
+                }
+                .onFailure { error ->
+                    _state.update { it.copy(isCheckingUpdate = false) }
+                    showFailure(error)
+                }
+        }
+    }
+
+    fun dismissAvailableRelease() {
+        _state.update { it.copy(availableRelease = null) }
     }
 
     fun sendWater(type: WaterType) {
@@ -390,7 +428,8 @@ class MainViewModelFactory(context: Context) : ViewModelProvider.Factory {
         if (modelClass.isAssignableFrom(MainViewModel::class.java)) {
             return MainViewModel(
                 api = LegacyWaterApi(),
-                store = SessionStore(appContext)
+                store = SessionStore(appContext),
+                updateChecker = GitHubUpdateChecker()
             ) as T
         }
         throw IllegalArgumentException("Unknown ViewModel: ${modelClass.name}")

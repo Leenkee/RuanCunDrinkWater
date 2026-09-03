@@ -5,6 +5,15 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+val githubRepository = providers.gradleProperty("GITHUB_REPOSITORY")
+    .orElse(providers.environmentVariable("GITHUB_REPOSITORY"))
+    .orElse("Leenkee/WaterDispenserRemote")
+    .get()
+val ciKeystorePath = providers.environmentVariable("ANDROID_KEYSTORE_PATH").orNull
+val ciKeystorePassword = providers.environmentVariable("ANDROID_KEYSTORE_PASSWORD").orNull
+val ciKeyAlias = providers.environmentVariable("ANDROID_KEY_ALIAS").orNull
+val ciKeyPassword = providers.environmentVariable("ANDROID_KEY_PASSWORD").orNull
+
 android {
     namespace = "com.young.waterremote"
     compileSdk = 35
@@ -13,10 +22,28 @@ android {
         applicationId = "com.young.waterremote"
         minSdk = 28
         targetSdk = 35
-        versionCode = 10
-        versionName = "1.3.6"
+        versionCode = 11
+        versionName = "1.3.7"
+
+        buildConfigField("String", "GITHUB_REPOSITORY", "\"$githubRepository\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    signingConfigs {
+        if (
+            ciKeystorePath != null &&
+            ciKeystorePassword != null &&
+            ciKeyAlias != null &&
+            ciKeyPassword != null
+        ) {
+            create("ciRelease") {
+                storeFile = file(ciKeystorePath)
+                storePassword = ciKeystorePassword
+                keyAlias = ciKeyAlias
+                keyPassword = ciKeyPassword
+            }
+        }
     }
 
     buildTypes {
@@ -27,6 +54,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfig = signingConfigs.findByName("ciRelease")
         }
     }
 
@@ -37,7 +65,7 @@ android {
 
     buildFeatures {
         compose = true
-        buildConfig = false
+        buildConfig = true
     }
 
     packaging {
