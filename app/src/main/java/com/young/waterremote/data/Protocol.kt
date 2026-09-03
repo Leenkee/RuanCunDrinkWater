@@ -118,12 +118,18 @@ internal object Protocol {
         return CommandReceipt(orderNumber = root.stringValue("order_sn"))
     }
 
+    fun parseCommandResponse(body: String): CommandReceipt {
+        val response = parseResponseObject(body)
+        throwIfSessionInvalid(response)
+        return parseReceipt(decryptResponse(body))
+    }
+
     fun parseDrinkingStatusResponse(
         body: String,
         expectedOrderNumber: String
     ): DrinkingStatus {
-        val response = runCatching { JsonParser.parseString(body).asJsonObject }
-            .getOrElse { throw RemoteApiException("服务器返回了无法识别的数据", it) }
+        val response = parseResponseObject(body)
+        throwIfSessionInvalid(response)
         val code = response.get("code")?.let { value ->
             runCatching { value.asInt }.getOrNull()
         }
@@ -149,6 +155,29 @@ internal object Protocol {
             DrinkingStatus.FINISHED
         } else {
             DrinkingStatus.IN_PROGRESS
+        }
+    }
+
+    private fun parseResponseObject(body: String): JsonObject = runCatching {
+        JsonParser.parseString(body).asJsonObject
+    }.getOrElse { throw RemoteApiException("服务器返回了无法识别的数据", it) }
+
+    private fun throwIfSessionInvalid(response: JsonObject) {
+        val auth = response.getAsJsonObject("header")?.stringValue("auth")
+        val message = serverMessage(response, "")
+        val normalizedMessage = message.lowercase(Locale.ROOT)
+        val tokenFailure = normalizedMessage.contains("token") && sequenceOf(
+            "错误",
+            "失效",
+            "无效",
+            "过期",
+            "invalid",
+            "error",
+            "expired"
+        ).any(normalizedMessage::contains)
+
+        if (auth?.toIntOrNull() == 1 || tokenFailure) {
+            throw SessionInvalidException()
         }
     }
 

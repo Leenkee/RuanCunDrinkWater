@@ -101,6 +101,26 @@ class LegacyCryptoTest {
     }
 
     @Test
+    fun commandResponse_reportsInvalidSessionForTokenError() {
+        val response =
+            """{"code":-1,"data":"\"8UchnbG7lZs=\"","header":{"auth":"00001"},"msg":"token错误!"}"""
+
+        assertThrows(SessionInvalidException::class.java) {
+            Protocol.parseCommandResponse(response)
+        }
+    }
+
+    @Test
+    fun drinkingStatusResponse_reportsInvalidSessionForTokenError() {
+        val response =
+            """{"code":-1,"data":"\"8UchnbG7lZs=\"","header":{"auth":"00001"},"msg":"token错误!"}"""
+
+        assertThrows(SessionInvalidException::class.java) {
+            Protocol.parseDrinkingStatusResponse(response, "order-1")
+        }
+    }
+
+    @Test
     fun balanceResponse_reportsInvalidSessionWhenUserInfoIsMissing() {
         val response = JsonObject().apply {
             addProperty("code", -1)

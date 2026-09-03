@@ -281,11 +281,11 @@ class MainViewModel(
                         showMessage("未获取到订单号，接水结束后请手动刷新余额")
                     }
                 }
-                .onFailure {
+                .onFailure { error ->
                     _state.update {
                         it.copy(sendingWater = null, isSendingTemporaryWater = false)
                     }
-                    showFailure(it)
+                    if (!handleInvalidSession(error)) showFailure(error)
                 }
         }
     }
@@ -322,13 +322,19 @@ class MainViewModel(
                 )
                 if (_state.value.session?.token != session.token) return@launch
 
-                val status = runCatching {
+                val statusResult = runCatching {
                     api.fetchDrinkingStatus(
                         token = session.token,
                         deviceKey = deviceKey,
                         orderNumber = orderNumber
                     )
-                }.getOrNull()
+                }
+                val error = statusResult.exceptionOrNull()
+                if (error != null) {
+                    if (handleInvalidSession(error)) return@launch
+                    return@repeat
+                }
+                val status = statusResult.getOrNull()
 
                 if (status == DrinkingStatus.FINISHED) {
                     refreshBalanceAfterDrinking(session)

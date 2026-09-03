@@ -52,11 +52,11 @@ class LegacyWaterApi(
 
     suspend fun sendCommand(token: String, deviceKey: String): CommandReceipt {
         val encrypted = LegacyCrypto.encrypt(Protocol.devicePayload(deviceKey))
-        val decrypted = post(
+        val responseBody = postRaw(
             url = DRINK_COMMAND_API,
             envelope = Protocol.envelope("send", encrypted, token)
         )
-        return Protocol.parseReceipt(decrypted)
+        return Protocol.parseCommandResponse(responseBody)
     }
 
     suspend fun fetchDrinkingStatus(
