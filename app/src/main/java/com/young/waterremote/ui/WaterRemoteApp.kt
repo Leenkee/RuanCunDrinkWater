@@ -3,6 +3,7 @@ package com.young.waterremote.ui
 import android.Manifest
 import android.content.pm.PackageManager
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -129,6 +130,10 @@ fun WaterRemoteApp(
     val uriHandler = LocalUriHandler.current
     var showSettings by rememberSaveable { mutableStateOf(false) }
     val message = state.message
+
+    BackHandler(enabled = showSettings) {
+        showSettings = false
+    }
 
     LaunchedEffect(message?.id) {
         message ?: return@LaunchedEffect
