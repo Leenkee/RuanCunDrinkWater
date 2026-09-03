@@ -59,6 +59,15 @@ class LegacyCryptoTest {
     }
 
     @Test
+    fun sessionWithoutToken_reportsInvalidCredentials() {
+        val error = assertThrows(RemoteApiException::class.java) {
+            Protocol.parseSession("{}", "13800138000")
+        }
+
+        assertEquals("账号或密码错误", error.message)
+    }
+
+    @Test
     fun drinkingStatusPayload_usesDeviceKeyAndOrderNumber() {
         val payload = JsonParser.parseString(
             Protocol.drinkingStatusPayload(

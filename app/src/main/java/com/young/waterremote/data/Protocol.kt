@@ -81,7 +81,7 @@ internal object Protocol {
 
     fun parseSession(json: String, fallbackMobile: String): UserSession {
         return parseSessionOrNull(json, fallbackMobile)
-            ?: throw RemoteApiException("登录响应中没有令牌")
+            ?: throw RemoteApiException("账号或密码错误")
     }
 
     fun parseSessionOrNull(json: String, fallbackMobile: String): UserSession? {

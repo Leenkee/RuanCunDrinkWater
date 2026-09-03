@@ -239,12 +239,6 @@ private fun LoginScreen(
             style = MaterialTheme.typography.headlineLarge,
             fontWeight = FontWeight.Bold
         )
-        Text(
-            text = "登录后远程控制冷热水",
-            modifier = Modifier.padding(top = 6.dp),
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            style = MaterialTheme.typography.bodyMedium
-        )
         Spacer(modifier = Modifier.height(26.dp))
 
         Card(
