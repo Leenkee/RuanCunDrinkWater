@@ -133,6 +133,7 @@ fun WaterRemoteApp(
             MainShell(
                 state = state,
                 onRefreshBalance = viewModel::refreshBalance,
+                onAccountEntered = viewModel::refreshBalanceSilently,
                 onSaveBindings = viewModel::saveBindings,
                 onSendWater = viewModel::sendWater,
                 onSendTemporaryWater = viewModel::sendTemporaryWater,
@@ -338,6 +339,14 @@ private fun LoginScreen(
                         )
                     }
                 }
+                Text(
+                    text = "温馨提示：建议使用密码登录。小天同学短信验证码重复发送间隔达数小时，可能影响登录体验。",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 14.dp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall
+                )
             }
         }
     }
@@ -348,6 +357,7 @@ private fun LoginScreen(
 private fun MainShell(
     state: AppUiState,
     onRefreshBalance: () -> Unit,
+    onAccountEntered: () -> Unit,
     onSaveBindings: (String, String) -> Unit,
     onSendWater: (WaterType) -> Unit,
     onSendTemporaryWater: (String) -> Unit,
@@ -362,7 +372,7 @@ private fun MainShell(
     var pendingTemporaryDeviceKey by rememberSaveable { mutableStateOf<String?>(null) }
 
     LaunchedEffect(section) {
-        if (section == MainSection.ACCOUNT) onRefreshBalance()
+        if (section == MainSection.ACCOUNT) onAccountEntered()
     }
 
     val temporaryScanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
@@ -1041,15 +1051,6 @@ private fun WaterConfirmationDialog(
             }
         },
         title = { Text("启动${type.label}？") },
-        text = {
-            Text(
-                if (type == WaterType.HOT) {
-                    "确认杯子已经放稳、出水口附近无人触碰。热水可能造成烫伤，确认后将立即发送出水指令。"
-                } else {
-                    "确认杯子已经放稳。确认后将立即向饮水机发送冷水出水指令。"
-                }
-            )
-        },
         confirmButton = {
             Button(
                 onClick = onConfirm,

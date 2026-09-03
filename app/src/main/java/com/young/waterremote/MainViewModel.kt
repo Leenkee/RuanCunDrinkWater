@@ -134,7 +134,11 @@ class MainViewModel(
         }
     }
 
-    fun refreshBalance() {
+    fun refreshBalance() = refreshBalance(showSuccessMessage = true)
+
+    fun refreshBalanceSilently() = refreshBalance(showSuccessMessage = false)
+
+    private fun refreshBalance(showSuccessMessage: Boolean) {
         val session = _state.value.session ?: run {
             showMessage("请先登录")
             return
@@ -151,7 +155,7 @@ class MainViewModel(
                     _state.update {
                         it.copy(session = updatedSession, isRefreshingBalance = false)
                     }
-                    showMessage("余额已更新")
+                    if (showSuccessMessage) showMessage("余额已更新")
                 }
                 .onFailure { error ->
                     if (_state.value.session?.token != session.token) return@onFailure
