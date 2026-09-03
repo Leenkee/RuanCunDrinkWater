@@ -1,6 +1,6 @@
 # 山软喝水
 
-GitHub 仓库：<https://github.com/Leenkee/WaterDispenserRemote>
+GitHub 仓库：<https://github.com/Leenkee/ShanRuanDrinkWater>
 
 这是一个从 `Duoheshui` 通信流程中独立出来的精简 Android 应用，只实现以下功能：
 
@@ -18,7 +18,7 @@ GitHub 仓库：<https://github.com/Leenkee/WaterDispenserRemote>
 用 `/home/young/Downloads/android-studio/bin/studio.sh` 打开本目录：
 
 ```text
-/home/young/WaterDispenserRemote
+/home/young/ShanRuanDrinkWater
 ```
 
 也可以在终端中构建：
@@ -51,12 +51,12 @@ UI 会在每次发送指令前要求二次确认。
 应用内更新源由构建参数 `GITHUB_REPOSITORY=owner/repository` 注入。GitHub Actions 会自动使用当前仓库名；本地构建时可手动传入：
 
 ```bash
-./gradlew assembleRelease -PGITHUB_REPOSITORY=Leenkee/WaterDispenserRemote
+./gradlew assembleRelease -PGITHUB_REPOSITORY=Leenkee/ShanRuanDrinkWater
 ```
 
 发布新版本时，先更新 `versionName` 和 `versionCode`，再创建与版本一致的标签，例如：
 
 ```bash
-git tag v1.3.7
-git push origin main v1.3.7
+git tag v1.3.8
+git push origin main v1.3.8
 ```

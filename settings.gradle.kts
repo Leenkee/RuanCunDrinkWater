@@ -19,5 +19,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "WaterDispenserRemote"
+rootProject.name = "ShanRuanDrinkWater"
 include(":app")

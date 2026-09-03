@@ -7,7 +7,7 @@ plugins {
 
 val githubRepository = providers.gradleProperty("GITHUB_REPOSITORY")
     .orElse(providers.environmentVariable("GITHUB_REPOSITORY"))
-    .orElse("Leenkee/WaterDispenserRemote")
+    .orElse("Leenkee/ShanRuanDrinkWater")
     .get()
 val ciKeystorePath = providers.environmentVariable("ANDROID_KEYSTORE_PATH").orNull
 val ciKeystorePassword = providers.environmentVariable("ANDROID_KEYSTORE_PASSWORD").orNull
@@ -22,8 +22,8 @@ android {
         applicationId = "com.young.waterremote"
         minSdk = 28
         targetSdk = 35
-        versionCode = 11
-        versionName = "1.3.7"
+        versionCode = 12
+        versionName = "1.3.8"
 
         buildConfigField("String", "GITHUB_REPOSITORY", "\"$githubRepository\"")
 
