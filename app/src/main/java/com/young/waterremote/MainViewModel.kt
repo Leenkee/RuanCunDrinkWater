@@ -37,6 +37,7 @@ data class AppUiState(
     val isSendingTemporaryWater: Boolean = false,
     val isCheckingUpdate: Boolean = false,
     val availableRelease: AvailableRelease? = null,
+    val isWaterConfirmationEnabled: Boolean = true,
     val codeCooldownSeconds: Int = 0,
     val message: UiMessage? = null
 ) {
@@ -53,7 +54,8 @@ class MainViewModel(
     private val _state = MutableStateFlow(
         AppUiState(
             session = store.loadSession(),
-            bindings = store.loadBindings()
+            bindings = store.loadBindings(),
+            isWaterConfirmationEnabled = store.isWaterConfirmationEnabled()
         )
     )
     val state: StateFlow<AppUiState> = _state.asStateFlow()
@@ -182,6 +184,11 @@ class MainViewModel(
                 else -> "冷热水设备已绑定"
             }
         )
+    }
+
+    fun setWaterConfirmationEnabled(enabled: Boolean) {
+        store.setWaterConfirmationEnabled(enabled)
+        _state.update { it.copy(isWaterConfirmationEnabled = enabled) }
     }
 
     fun checkForUpdates() {

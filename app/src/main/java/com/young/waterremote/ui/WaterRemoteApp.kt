@@ -66,6 +66,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -81,6 +82,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.painterResource
@@ -119,6 +121,14 @@ private enum class LoginMode {
     PASSWORD
 }
 
+private enum class SettingsPage(val title: String) {
+    ROOT("设置"),
+    HELP("使用帮助"),
+    PROMOTION("推广")
+}
+
+private const val IOS_WATER_URL = "https://water.simulacra.me/"
+
 @Composable
 fun WaterRemoteApp(
     viewModel: MainViewModel,
@@ -129,10 +139,16 @@ fun WaterRemoteApp(
     val snackbarHostState = remember { SnackbarHostState() }
     val uriHandler = LocalUriHandler.current
     var showSettings by rememberSaveable { mutableStateOf(false) }
+    var settingsPageName by rememberSaveable { mutableStateOf(SettingsPage.ROOT.name) }
+    val settingsPage = SettingsPage.valueOf(settingsPageName)
     val message = state.message
 
     BackHandler(enabled = showSettings) {
-        showSettings = false
+        if (settingsPage == SettingsPage.ROOT) {
+            showSettings = false
+        } else {
+            settingsPageName = SettingsPage.ROOT.name
+        }
     }
 
     LaunchedEffect(message?.id) {
@@ -145,13 +161,27 @@ fun WaterRemoteApp(
         if (showSettings) {
             SettingsScreen(
                 state = state,
-                onBack = { showSettings = false },
-                onCheckForUpdates = viewModel::checkForUpdates
+                page = settingsPage,
+                onBack = {
+                    if (settingsPage == SettingsPage.ROOT) {
+                        showSettings = false
+                    } else {
+                        settingsPageName = SettingsPage.ROOT.name
+                    }
+                },
+                onWaterConfirmationChange = viewModel::setWaterConfirmationEnabled,
+                onCheckForUpdates = viewModel::checkForUpdates,
+                onOpenHelp = { settingsPageName = SettingsPage.HELP.name },
+                onOpenPromotion = { settingsPageName = SettingsPage.PROMOTION.name },
+                onOpenIosWater = { uriHandler.openUri(IOS_WATER_URL) }
             )
         } else if (state.isLoggedIn) {
             MainShell(
                 state = state,
-                onOpenSettings = { showSettings = true },
+                onOpenSettings = {
+                    settingsPageName = SettingsPage.ROOT.name
+                    showSettings = true
+                },
                 onRefreshBalance = viewModel::refreshBalance,
                 onAccountEntered = viewModel::refreshBalanceSilently,
                 onSaveBindings = viewModel::saveBindings,
@@ -164,7 +194,10 @@ fun WaterRemoteApp(
         } else {
             LoginScreen(
                 state = state,
-                onOpenSettings = { showSettings = true },
+                onOpenSettings = {
+                    settingsPageName = SettingsPage.ROOT.name
+                    showSettings = true
+                },
                 onRequestCode = viewModel::requestCode,
                 onCodeLogin = viewModel::login,
                 onPasswordLogin = viewModel::loginWithPassword
@@ -421,8 +454,10 @@ private fun MainShell(
         val contents = result.contents?.trim()
         if (contents.isNullOrBlank()) {
             Toast.makeText(context, "未扫描到二维码", Toast.LENGTH_SHORT).show()
-        } else {
+        } else if (state.isWaterConfirmationEnabled) {
             pendingTemporaryDeviceKey = contents
+        } else {
+            onSendTemporaryWater(contents)
         }
     }
     val temporaryCameraPermissionLauncher = rememberLauncherForActivityResult(
@@ -461,7 +496,11 @@ private fun MainShell(
                     WaterType.COLD -> state.bindings.hasCold
                 }
                 if (isBound) {
-                    pendingWater = type
+                    if (state.isWaterConfirmationEnabled) {
+                        pendingWater = type
+                    } else {
+                        onSendWater(type)
+                    }
                 } else {
                     sectionName = MainSection.DEVICES.name
                     Toast.makeText(context, "请先绑定${type.label}设备", Toast.LENGTH_SHORT).show()
@@ -523,7 +562,13 @@ private fun MainShell(
                         WaterType.HOT -> state.bindings.hasHot
                         WaterType.COLD -> state.bindings.hasCold
                     }
-                    if (isBound) pendingWater = type else sectionName = MainSection.DEVICES.name
+                    if (!isBound) {
+                        sectionName = MainSection.DEVICES.name
+                    } else if (state.isWaterConfirmationEnabled) {
+                        pendingWater = type
+                    } else {
+                        onSendWater(type)
+                    }
                 }
             )
             MainSection.DEVICES -> DevicesScreen(
@@ -566,13 +611,18 @@ private fun MainShell(
 @Composable
 private fun SettingsScreen(
     state: AppUiState,
+    page: SettingsPage,
     onBack: () -> Unit,
-    onCheckForUpdates: () -> Unit
+    onWaterConfirmationChange: (Boolean) -> Unit,
+    onCheckForUpdates: () -> Unit,
+    onOpenHelp: () -> Unit,
+    onOpenPromotion: () -> Unit,
+    onOpenIosWater: () -> Unit
 ) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("设置", fontWeight = FontWeight.SemiBold) },
+                title = { Text(page.title, fontWeight = FontWeight.SemiBold) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
@@ -590,38 +640,233 @@ private fun SettingsScreen(
                 top = contentPadding.calculateTopPadding() + 12.dp,
                 end = 18.dp,
                 bottom = contentPadding.calculateBottomPadding() + 24.dp
-            )
+            ),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            item {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surface
-                    )
-                ) {
-                    ListItem(
-                        headlineContent = { Text("检查更新") },
-                        supportingContent = {
-                            Text("当前版本 ${BuildConfig.VERSION_NAME}")
-                        },
-                        leadingContent = {
-                            Icon(Icons.Default.Refresh, contentDescription = null)
-                        },
-                        trailingContent = {
-                            if (state.isCheckingUpdate) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(22.dp),
-                                    strokeWidth = 2.dp
-                                )
-                            }
-                        },
-                        modifier = Modifier.clickable(
-                            enabled = !state.isCheckingUpdate,
-                            onClick = onCheckForUpdates
+            when (page) {
+                SettingsPage.ROOT -> {
+                    item {
+                        Text(
+                            text = "应用设置",
+                            modifier = Modifier.padding(start = 4.dp),
+                            color = MaterialTheme.colorScheme.primary,
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.SemiBold
                         )
-                    )
+                    }
+                    item {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(20.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surface
+                            )
+                        ) {
+                            ListItem(
+                                headlineContent = { Text("出水二次确认") },
+                                supportingContent = {
+                                    Text(
+                                        if (state.isWaterConfirmationEnabled) {
+                                            "发送出水指令前需要再次确认"
+                                        } else {
+                                            "点击出水或完成扫码后直接发送指令"
+                                        }
+                                    )
+                                },
+                                leadingContent = {
+                                    Icon(Icons.Default.PlayArrow, contentDescription = null)
+                                },
+                                trailingContent = {
+                                    Switch(
+                                        checked = state.isWaterConfirmationEnabled,
+                                        onCheckedChange = onWaterConfirmationChange
+                                    )
+                                },
+                                modifier = Modifier.clickable {
+                                    onWaterConfirmationChange(
+                                        !state.isWaterConfirmationEnabled
+                                    )
+                                }
+                            )
+                            HorizontalDivider(modifier = Modifier.padding(start = 56.dp))
+                            ListItem(
+                                headlineContent = { Text("检查更新") },
+                                supportingContent = {
+                                    Text("当前版本 ${BuildConfig.VERSION_NAME}")
+                                },
+                                leadingContent = {
+                                    Icon(Icons.Default.Refresh, contentDescription = null)
+                                },
+                                trailingContent = {
+                                    if (state.isCheckingUpdate) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(22.dp),
+                                            strokeWidth = 2.dp
+                                        )
+                                    } else {
+                                        Text(
+                                            "检查",
+                                            color = MaterialTheme.colorScheme.primary,
+                                            style = MaterialTheme.typography.labelLarge
+                                        )
+                                    }
+                                },
+                                modifier = Modifier.clickable(
+                                    enabled = !state.isCheckingUpdate,
+                                    onClick = onCheckForUpdates
+                                )
+                            )
+                            HorizontalDivider(modifier = Modifier.padding(start = 56.dp))
+                            ListItem(
+                                headlineContent = { Text("使用帮助") },
+                                supportingContent = { Text("了解登录、设备、余额和桌面小组件") },
+                                leadingContent = {
+                                    Icon(Icons.Default.Person, contentDescription = null)
+                                },
+                                trailingContent = {
+                                    Text(
+                                        "查看",
+                                        color = MaterialTheme.colorScheme.primary,
+                                        style = MaterialTheme.typography.labelLarge
+                                    )
+                                },
+                                modifier = Modifier.clickable(onClick = onOpenHelp)
+                            )
+                            HorizontalDivider(modifier = Modifier.padding(start = 56.dp))
+                            ListItem(
+                                headlineContent = { Text("推广") },
+                                supportingContent = { Text("iOS 用户喝水入口") },
+                                leadingContent = {
+                                    Icon(Icons.Default.Phone, contentDescription = null)
+                                },
+                                trailingContent = {
+                                    Text(
+                                        "查看",
+                                        color = MaterialTheme.colorScheme.primary,
+                                        style = MaterialTheme.typography.labelLarge
+                                    )
+                                },
+                                modifier = Modifier.clickable(onClick = onOpenPromotion)
+                            )
+                        }
+                    }
                 }
+
+                SettingsPage.HELP -> {
+                    item {
+                        HelpCard(
+                            icon = Icons.Default.Person,
+                            title = "开始使用",
+                            description = "本应用不提供账号注册。请先使用“小天同学”微信小程序或 APP 完成注册，再使用相同手机号登录本应用。"
+                        )
+                    }
+                    item {
+                        HelpCard(
+                            icon = Icons.Default.Build,
+                            title = "绑定喝水设备",
+                            description = "在“设备”页面分别扫描热水和冷水设备二维码。绑定后会保存在本机，日常喝水无需每次扫码。"
+                        )
+                    }
+                    item {
+                        HelpCard(
+                            icon = Icons.Default.Refresh,
+                            title = "查看账户余额",
+                            description = "控制页面和“我的”页面会显示小天同学喝水账户余额；进入“我的”或饮水结束后会自动刷新。"
+                        )
+                    }
+                    item {
+                        HelpCard(
+                            icon = Icons.Default.PlayArrow,
+                            title = "桌面小组件",
+                            description = "长按手机桌面空白处添加“山软喝水”小组件，即可快速开启热水、冷水或扫描临时设备。"
+                        )
+                    }
+                }
+
+                SettingsPage.PROMOTION -> {
+                    item {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(24.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.primaryContainer
+                            )
+                        ) {
+                            Column(modifier = Modifier.padding(22.dp)) {
+                                Text(
+                                    text = "iOS 用户也能方便喝水",
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    style = MaterialTheme.typography.titleLarge,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "iPhone 用户可使用以下网页服务：\n$IOS_WATER_URL",
+                                    modifier = Modifier.padding(top = 10.dp),
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    style = MaterialTheme.typography.bodyLarge
+                                )
+                                Button(
+                                    onClick = onOpenIosWater,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 20.dp)
+                                ) {
+                                    Text("打开网页")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HelpCard(
+    icon: ImageVector,
+    title: String,
+    description: String
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(18.dp),
+            verticalAlignment = Alignment.Top
+        ) {
+            Surface(
+                modifier = Modifier.size(42.dp),
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.primaryContainer
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    modifier = Modifier.padding(10.dp),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(start = 14.dp)
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = description,
+                    modifier = Modifier.padding(top = 5.dp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodyMedium
+                )
             }
         }
     }
@@ -1224,7 +1469,7 @@ private fun TemporaryWaterConfirmationDialog(
         title = { Text("使用临时设备出水？") },
         text = {
             Text(
-                "请确认杯子已放在刚刚扫描的出水口下方。二维码可能对应热水，请避免触碰出水口；确认后将立即发送出水指令，且不会保存该设备。"
+                "确认后将立即发送出水指令，本次扫描的设备不会保存到应用中。"
             )
         },
         confirmButton = {

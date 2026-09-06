@@ -44,6 +44,15 @@ class SessionStore(context: Context) {
         }
     }
 
+    fun isWaterConfirmationEnabled(): Boolean =
+        preferences.getBoolean(KEY_WATER_CONFIRMATION, true)
+
+    fun setWaterConfirmationEnabled(enabled: Boolean) {
+        preferences.edit {
+            putBoolean(KEY_WATER_CONFIRMATION, enabled)
+        }
+    }
+
     private companion object {
         const val PREFERENCES = "water_remote"
         const val KEY_MOBILE = "session_mobile"
@@ -51,5 +60,6 @@ class SessionStore(context: Context) {
         const val KEY_BALANCE = "wallet_balance"
         const val KEY_HOT = "hot_device_key"
         const val KEY_COLD = "cold_device_key"
+        const val KEY_WATER_CONFIRMATION = "water_confirmation_enabled"
     }
 }
