@@ -6,7 +6,7 @@
 
 1. 确认 `app/build.gradle.kts` 的 `versionName`、`versionCode` 已递增，并推送代码。
 2. 打开仓库的 **Actions → Android Release → Run workflow**。
-3. 选择待发布分支，勾选 **publish_release**，在 **release_version** 输入该分支的版本号（例如 `1.3.14`，不要加 `v`）。
+3. 选择待发布分支，勾选 **publish_release**，在 **release_version** 输入该分支的版本号（例如 `1.3.15`，不要加 `v`）。
 4. 点击 **Run workflow**。测试、lint、签名构建通过后，工作流会为此次检出的提交创建标签及 Release，并附加签名 APK。
 
 只想获取安装包时，不勾选 `publish_release`；构建结束后下载该次运行的 Artifacts。
@@ -18,7 +18,7 @@
 ```bash
 gh workflow run android-release.yml \
   --repo Leenkee/ShanRuanDrinkWater --ref main \
-  -f publish_release=true -f release_version=1.3.14
+  -f publish_release=true -f release_version=1.3.15
 ```
 
 只有发布正式 Release 后，应用内检查更新才会发现新版本；Actions Artifacts 不会被视为已发布版本。

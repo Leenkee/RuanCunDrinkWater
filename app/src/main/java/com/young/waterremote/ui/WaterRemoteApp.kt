@@ -8,7 +8,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -35,7 +34,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Build
@@ -64,7 +62,6 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -131,6 +128,7 @@ private enum class LoginMode {
 
 private enum class SettingsPage(val title: String) {
     ROOT("设置"),
+    VERSION("版本"),
     HELP("使用帮助"),
     PROMOTION("推广")
 }
@@ -191,6 +189,7 @@ fun WaterRemoteApp(
                 onWaterConfirmationChange = viewModel::setWaterConfirmationEnabled,
                 onAutoUpdateChange = viewModel::setAutoUpdateEnabled,
                 onCheckForUpdates = viewModel::checkForUpdates,
+                onOpenVersion = { settingsPageName = SettingsPage.VERSION.name },
                 onOpenHelp = { settingsPageName = SettingsPage.HELP.name },
                 onOpenPromotion = { settingsPageName = SettingsPage.PROMOTION.name },
                 onOpenIosWater = { uriHandler.openUri(IOS_WATER_URL) }
@@ -636,44 +635,11 @@ private fun SettingsScreen(
     onWaterConfirmationChange: (Boolean) -> Unit,
     onAutoUpdateChange: (Boolean) -> Unit,
     onCheckForUpdates: () -> Unit,
+    onOpenVersion: () -> Unit,
     onOpenHelp: () -> Unit,
     onOpenPromotion: () -> Unit,
     onOpenIosWater: () -> Unit
 ) {
-    var showAutoUpdateOptions by rememberSaveable { mutableStateOf(false) }
-    if (showAutoUpdateOptions) {
-        AlertDialog(
-            onDismissRequest = { showAutoUpdateOptions = false },
-            title = { Text("自动检查更新") },
-            text = {
-                Column {
-                    Text(
-                        "开启后按手机本地时间每天中午 12:00 检查。省电或网络限制可能延迟检查；后台发现新版会在下次进入应用时弹窗提示。",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                    listOf(true to "开启，每天中午检查", false to "关闭，仅手动检查").forEach { (enabled, label) ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth().selectable(
-                                selected = state.isAutoUpdateEnabled == enabled,
-                                role = Role.RadioButton,
-                                onClick = {
-                                    onAutoUpdateChange(enabled)
-                                    showAutoUpdateOptions = false
-                                }
-                            ).padding(vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            RadioButton(selected = state.isAutoUpdateEnabled == enabled, onClick = null)
-                            Text(label, modifier = Modifier.padding(start = 12.dp))
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showAutoUpdateOptions = false }) { Text("取消") }
-            }
-        )
-    }
     Scaffold(
         topBar = {
             TopAppBar(
@@ -745,18 +711,10 @@ private fun SettingsScreen(
                             )
                             HorizontalDivider(modifier = Modifier.padding(start = 56.dp))
                             SettingsActionRow(
-                                title = "自动检查更新",
-                                description = if (state.isAutoUpdateEnabled) "已开启 · 每天中午 12:00" else "已关闭 · 仅手动检查",
-                                icon = Icons.Default.Settings,
-                                onClick = { showAutoUpdateOptions = true }
-                            )
-                            HorizontalDivider(modifier = Modifier.padding(start = 56.dp))
-                            SettingsActionRow(
-                                title = "检查更新",
+                                title = "版本",
                                 description = "当前版本 ${BuildConfig.VERSION_NAME}",
-                                icon = Icons.Default.Refresh,
-                                loading = state.isCheckingUpdate,
-                                onClick = onCheckForUpdates
+                                icon = Icons.Default.CheckCircle,
+                                onClick = onOpenVersion
                             )
                             HorizontalDivider(modifier = Modifier.padding(start = 56.dp))
                             SettingsActionRow(
@@ -771,6 +729,60 @@ private fun SettingsScreen(
                                 description = "iOS 用户喝水入口",
                                 icon = Icons.Default.Phone,
                                 onClick = onOpenPromotion
+                            )
+                        }
+                    }
+                }
+
+                SettingsPage.VERSION -> {
+                    item {
+                        Text(
+                            text = "版本设置",
+                            modifier = Modifier.padding(start = 4.dp),
+                            color = MaterialTheme.colorScheme.primary,
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                    item {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(20.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surface
+                            )
+                        ) {
+                            ListItem(
+                                headlineContent = { Text("自动检查更新") },
+                                supportingContent = {
+                                    Text(
+                                        if (state.isAutoUpdateEnabled) {
+                                            "每天中午 12:00 检查，系统限制可能导致延迟"
+                                        } else {
+                                            "已关闭，仅在手动操作时检查"
+                                        }
+                                    )
+                                },
+                                leadingContent = {
+                                    Icon(Icons.Default.Settings, contentDescription = null)
+                                },
+                                trailingContent = {
+                                    Switch(
+                                        checked = state.isAutoUpdateEnabled,
+                                        onCheckedChange = onAutoUpdateChange
+                                    )
+                                },
+                                modifier = Modifier.clickable {
+                                    onAutoUpdateChange(!state.isAutoUpdateEnabled)
+                                }
+                            )
+                            HorizontalDivider(modifier = Modifier.padding(start = 56.dp))
+                            SettingsActionRow(
+                                title = "检查更新",
+                                description = "当前版本 ${BuildConfig.VERSION_NAME}",
+                                icon = Icons.Default.Refresh,
+                                loading = state.isCheckingUpdate,
+                                onClick = onCheckForUpdates
                             )
                         }
                     }
@@ -856,13 +868,11 @@ private fun SettingsActionRow(
         headlineContent = { Text(title) },
         supportingContent = { Text(description) },
         leadingContent = { Icon(icon, contentDescription = null) },
-        trailingContent = {
-            if (loading) {
+        trailingContent = if (loading) {
+            {
                 CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
-            } else {
-                Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null)
             }
-        },
+        } else null,
         modifier = Modifier.clickable(enabled = !loading, role = Role.Button, onClick = onClick)
     )
 }
