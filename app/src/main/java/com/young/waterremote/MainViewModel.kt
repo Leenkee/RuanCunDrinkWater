@@ -16,6 +16,8 @@ import com.young.waterremote.data.SessionInvalidException
 import com.young.waterremote.data.UserSession
 import com.young.waterremote.data.WaterType
 import com.young.waterremote.data.VersionComparator
+import com.young.waterremote.updates.AutoUpdateScheduler
+import com.young.waterremote.updates.AutoUpdateStore
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -37,6 +39,8 @@ data class AppUiState(
     val isSendingTemporaryWater: Boolean = false,
     val isCheckingUpdate: Boolean = false,
     val availableRelease: AvailableRelease? = null,
+    val automaticRelease: AvailableRelease? = null,
+    val isAutoUpdateEnabled: Boolean = false,
     val isWaterConfirmationEnabled: Boolean = true,
     val codeCooldownSeconds: Int = 0,
     val message: UiMessage? = null
@@ -47,7 +51,9 @@ data class AppUiState(
 class MainViewModel(
     private val api: LegacyWaterApi,
     private val store: SessionStore,
-    private val updateChecker: GitHubUpdateChecker
+    private val updateChecker: GitHubUpdateChecker,
+    private val autoUpdates: AutoUpdateStore,
+    private val autoUpdateScheduler: AutoUpdateScheduler
 ) : ViewModel() {
     private val messageIds = AtomicLong(0)
     private val drinkingStatusJobs = mutableMapOf<String, Job>()
@@ -55,10 +61,30 @@ class MainViewModel(
         AppUiState(
             session = store.loadSession(),
             bindings = store.loadBindings(),
+            isAutoUpdateEnabled = autoUpdates.isEnabled(),
             isWaterConfirmationEnabled = store.isWaterConfirmationEnabled()
         )
     )
     val state: StateFlow<AppUiState> = _state.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            autoUpdates.observeRelease().collect { release ->
+                val update = release?.takeIf {
+                    VersionComparator.isNewer(it.versionName, BuildConfig.VERSION_NAME)
+                }
+                _state.update { it.copy(automaticRelease = update) }
+                if (release != null && update == null) autoUpdates.clearRelease()
+            }
+        }
+    }
+
+    fun setAutoUpdateEnabled(enabled: Boolean) {
+        autoUpdateScheduler.setEnabled(enabled)
+        _state.update {
+            it.copy(isAutoUpdateEnabled = enabled, automaticRelease = if (enabled) it.automaticRelease else null)
+        }
+    }
 
     fun requestCode(mobile: String) {
         val normalized = mobile.trim()
@@ -220,7 +246,8 @@ class MainViewModel(
     }
 
     fun dismissAvailableRelease() {
-        _state.update { it.copy(availableRelease = null) }
+        autoUpdates.clearRelease()
+        _state.update { it.copy(availableRelease = null, automaticRelease = null) }
     }
 
     fun sendWater(type: WaterType) {
@@ -442,7 +469,9 @@ class MainViewModelFactory(context: Context) : ViewModelProvider.Factory {
             return MainViewModel(
                 api = LegacyWaterApi(),
                 store = SessionStore(appContext),
-                updateChecker = GitHubUpdateChecker()
+                updateChecker = GitHubUpdateChecker(),
+                autoUpdates = AutoUpdateStore(appContext),
+                autoUpdateScheduler = AutoUpdateScheduler(appContext)
             ) as T
         }
         throw IllegalArgumentException("Unknown ViewModel: ${modelClass.name}")

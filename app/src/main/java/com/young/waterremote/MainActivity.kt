@@ -11,6 +11,7 @@ import androidx.core.view.WindowCompat
 import androidx.lifecycle.ViewModelProvider
 import com.young.waterremote.ui.WaterRemoteApp
 import com.young.waterremote.ui.theme.WaterRemoteTheme
+import com.young.waterremote.updates.AutoUpdateScheduler
 
 class MainActivity : ComponentActivity() {
     private var widgetRequestSequence = 0L
@@ -41,6 +42,11 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         acceptWidgetAction(intent)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        AutoUpdateScheduler(this).reconcile()
     }
 
     private fun acceptWidgetAction(intent: Intent?) {
