@@ -557,9 +557,12 @@ private fun MainShell(
             sectionName = MainSection.CONTROL.name
             onDismissDrinkingProgress(drinkingProgress.requestId)
         }
-        BackHandler(onBack = returnToMainMenu)
+        val isTerminal = drinkingProgress.phase == DrinkingPhase.FINISHED ||
+            drinkingProgress.phase == DrinkingPhase.FAILED ||
+            drinkingProgress.phase == DrinkingPhase.UNKNOWN
+        BackHandler { }
         LaunchedEffect(drinkingProgress.requestId, drinkingProgress.phase, isResumed) {
-            if (drinkingProgress.phase == DrinkingPhase.FINISHED && isResumed) {
+            if (isTerminal && isResumed) {
                 for (seconds in DRINKING_RETURN_COUNTDOWN_SECONDS downTo 1) {
                     secondsUntilReturn = seconds
                     delay(1_000L)
@@ -569,8 +572,7 @@ private fun MainShell(
         }
         DrinkingProgressScreen(
             progress = drinkingProgress,
-            secondsUntilReturn = secondsUntilReturn,
-            onBack = returnToMainMenu
+            secondsUntilReturn = secondsUntilReturn
         )
         return
     }
@@ -671,8 +673,7 @@ private fun MainShell(
 @Composable
 private fun DrinkingProgressScreen(
     progress: DrinkingProgress,
-    secondsUntilReturn: Int,
-    onBack: () -> Unit
+    secondsUntilReturn: Int
 ) {
     val accent = when (progress.phase) {
         DrinkingPhase.FAILED, DrinkingPhase.UNKNOWN -> MaterialTheme.colorScheme.error
@@ -694,19 +695,14 @@ private fun DrinkingProgressScreen(
         DrinkingPhase.IN_PROGRESS -> "按动饮水机接水按钮可进行接水"
         DrinkingPhase.SETTLING -> "正在更新余额，计算本次消费"
         DrinkingPhase.FINISHED -> "$secondsUntilReturn 秒后自动返回主菜单"
-        DrinkingPhase.FAILED -> progress.detail.orEmpty()
-        DrinkingPhase.UNKNOWN -> progress.detail.orEmpty()
+        DrinkingPhase.FAILED, DrinkingPhase.UNKNOWN ->
+            "${progress.detail.orEmpty()}\n$secondsUntilReturn 秒后自动返回主菜单"
     }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("接水状态", fontWeight = FontWeight.SemiBold) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回主菜单")
-                    }
-                }
+                title = { Text("接水状态", fontWeight = FontWeight.SemiBold) }
             )
         }
     ) { contentPadding ->
@@ -809,13 +805,6 @@ private fun DrinkingProgressScreen(
                             )
                         }
                     }
-                }
-                OutlinedButton(
-                    onClick = onBack,
-                    modifier = Modifier.fillMaxWidth().height(52.dp),
-                    shape = RoundedCornerShape(18.dp)
-                ) {
-                    Text("返回主菜单")
                 }
             }
         }
@@ -1003,7 +992,7 @@ private fun SettingsScreen(
                         HelpCard(
                             icon = Icons.Default.PlayArrow,
                             title = "查看接水状态",
-                            description = "发送接水指令后会进入接水状态页面。接水完成后显示“接水结束”，根据接水前后余额变化显示本次消费，倒计时 3 秒自动返回主菜单。"
+                            description = "发送接水指令后进入接水状态页面，接水期间无法手动返回。接水完成后显示“接水结束”和本次消费，倒计时 3 秒自动返回主菜单。发生异常时也会显示原因并倒计时返回。"
                         )
                     }
                     item {
