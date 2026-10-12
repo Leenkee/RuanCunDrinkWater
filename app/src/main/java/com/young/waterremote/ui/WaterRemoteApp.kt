@@ -120,7 +120,7 @@ import com.young.waterremote.ui.theme.HotRed
 import kotlinx.coroutines.delay
 
 private enum class MainSection(val title: String, val label: String) {
-    CONTROL("山软喝水", "控制"),
+    CONTROL("软村饮水", "控制"),
     DEVICES("设备绑定", "设备"),
     ACCOUNT("我的", "我的")
 }
@@ -298,7 +298,7 @@ private fun LoginScreen(
         ) {
             Spacer(modifier = Modifier.height(20.dp))
         Text(
-            text = "山软喝水",
+            text = "软村饮水",
             style = MaterialTheme.typography.headlineLarge,
             fontWeight = FontWeight.Bold
         )
@@ -1006,7 +1006,7 @@ private fun SettingsScreen(
                         HelpCard(
                             icon = Icons.Default.PlayArrow,
                             title = "桌面小组件",
-                            description = "长按手机桌面空白处添加“山软喝水”小组件，即可快速开启热水、冷水或扫描临时设备。"
+                            description = "长按手机桌面空白处添加“软村饮水”小组件，即可快速开启热水、冷水或扫描临时设备。"
                         )
                     }
                 }

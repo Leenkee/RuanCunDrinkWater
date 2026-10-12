@@ -23,7 +23,7 @@ class GitHubUpdateCheckerTest {
               "html_url": "https://github.com/owner/repo/releases/tag/v1.3.8",
               "assets": [
                 {
-                  "name": "ShanRuanDrink-1.3.8-release.apk",
+                  "name": "RuanCunDrink-1.3.8-release.apk",
                   "browser_download_url": "https://example.com/app.apk"
                 }
               ]

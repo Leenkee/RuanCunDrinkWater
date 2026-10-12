@@ -19,5 +19,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "ShanRuanDrinkWater"
+rootProject.name = "软村饮水"
 include(":app")

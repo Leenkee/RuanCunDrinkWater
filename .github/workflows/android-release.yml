@@ -86,10 +86,10 @@ jobs:
         id: apk
         run: |
           VERSION_NAME=$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' app/build.gradle.kts)
-          APK_PATH="$RUNNER_TEMP/ShanRuanDrink-${VERSION_NAME}-release.apk"
+          APK_PATH="$RUNNER_TEMP/RuanCunDrink-${VERSION_NAME}-release.apk"
           cp app/build/outputs/apk/release/app-release.apk "$APK_PATH"
           echo "path=$APK_PATH" >> "$GITHUB_OUTPUT"
-          echo "name=ShanRuanDrink-${VERSION_NAME}-release.apk" >> "$GITHUB_OUTPUT"
+          echo "name=RuanCunDrink-${VERSION_NAME}-release.apk" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION_NAME" >> "$GITHUB_OUTPUT"
 
       - name: Upload workflow artifact
@@ -108,5 +108,5 @@ jobs:
         run: |
           gh release create "v$VERSION_NAME" "$APK_PATH" \
             --target "$GITHUB_SHA" \
-            --title "山软喝水 v$VERSION_NAME" \
+            --title "软村饮水 v$VERSION_NAME" \
             --generate-notes
