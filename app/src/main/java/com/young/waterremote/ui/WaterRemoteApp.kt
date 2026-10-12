@@ -38,6 +38,7 @@ import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Phone
@@ -104,6 +105,8 @@ import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import com.young.waterremote.AppUiState
 import com.young.waterremote.BuildConfig
+import com.young.waterremote.DrinkingPhase
+import com.young.waterremote.DrinkingProgress
 import com.young.waterremote.MainViewModel
 import com.young.waterremote.PortraitCaptureActivity
 import com.young.waterremote.R
@@ -114,6 +117,7 @@ import com.young.waterremote.data.AvailableRelease
 import com.young.waterremote.data.WaterType
 import com.young.waterremote.ui.theme.ColdBlue
 import com.young.waterremote.ui.theme.HotRed
+import kotlinx.coroutines.delay
 
 private enum class MainSection(val title: String, val label: String) {
     CONTROL("山软喝水", "控制"),
@@ -134,6 +138,7 @@ private enum class SettingsPage(val title: String) {
 }
 
 private const val IOS_WATER_URL = "https://water.simulacra.me/"
+private const val DRINKING_RETURN_COUNTDOWN_SECONDS = 3
 
 @Composable
 fun WaterRemoteApp(
@@ -206,7 +211,9 @@ fun WaterRemoteApp(
                 onSaveBindings = viewModel::saveBindings,
                 onSendWater = viewModel::sendWater,
                 onSendTemporaryWater = viewModel::sendTemporaryWater,
+                onDismissDrinkingProgress = viewModel::dismissDrinkingProgress,
                 onLogout = viewModel::logout,
+                isResumed = isResumed,
                 widgetActionRequest = widgetActionRequest,
                 onWidgetActionConsumed = onWidgetActionConsumed
             )
@@ -230,7 +237,11 @@ fun WaterRemoteApp(
                 .padding(
                     start = 16.dp,
                     end = 16.dp,
-                    bottom = if (state.isLoggedIn && !showSettings) 90.dp else 20.dp
+                    bottom = if (state.isLoggedIn && !showSettings && state.drinkingProgress == null) {
+                        90.dp
+                    } else {
+                        20.dp
+                    }
                 )
                 .navigationBarsPadding()
         )
@@ -455,7 +466,9 @@ private fun MainShell(
     onSaveBindings: (String, String) -> Unit,
     onSendWater: (WaterType) -> Unit,
     onSendTemporaryWater: (String) -> Unit,
+    onDismissDrinkingProgress: (Long) -> Unit,
     onLogout: () -> Unit,
+    isResumed: Boolean,
     widgetActionRequest: WidgetActionRequest?,
     onWidgetActionConsumed: (Long) -> Unit
 ) {
@@ -464,6 +477,10 @@ private fun MainShell(
     val section = MainSection.valueOf(sectionName)
     var pendingWater by remember { mutableStateOf<WaterType?>(null) }
     var pendingTemporaryDeviceKey by rememberSaveable { mutableStateOf<String?>(null) }
+    val drinkingProgress = state.drinkingProgress
+    var secondsUntilReturn by remember(drinkingProgress?.requestId, drinkingProgress?.phase) {
+        mutableStateOf(DRINKING_RETURN_COUNTDOWN_SECONDS)
+    }
 
     LaunchedEffect(section) {
         if (section == MainSection.ACCOUNT) onAccountEntered()
@@ -499,7 +516,8 @@ private fun MainShell(
         }
     }
 
-    LaunchedEffect(widgetActionRequest?.id) {
+    LaunchedEffect(widgetActionRequest?.id, drinkingProgress?.requestId) {
+        if (drinkingProgress != null) return@LaunchedEffect
         val request = widgetActionRequest ?: return@LaunchedEffect
         when (request.action) {
             WidgetAction.HOT, WidgetAction.COLD -> {
@@ -532,6 +550,29 @@ private fun MainShell(
             }
         }
         onWidgetActionConsumed(request.id)
+    }
+
+    if (drinkingProgress != null) {
+        val returnToMainMenu = {
+            sectionName = MainSection.CONTROL.name
+            onDismissDrinkingProgress(drinkingProgress.requestId)
+        }
+        BackHandler(onBack = returnToMainMenu)
+        LaunchedEffect(drinkingProgress.requestId, drinkingProgress.phase, isResumed) {
+            if (drinkingProgress.phase == DrinkingPhase.FINISHED && isResumed) {
+                for (seconds in DRINKING_RETURN_COUNTDOWN_SECONDS downTo 1) {
+                    secondsUntilReturn = seconds
+                    delay(1_000L)
+                }
+                returnToMainMenu()
+            }
+        }
+        DrinkingProgressScreen(
+            progress = drinkingProgress,
+            secondsUntilReturn = secondsUntilReturn,
+            onBack = returnToMainMenu
+        )
+        return
     }
 
     Scaffold(
@@ -623,6 +664,161 @@ private fun MainShell(
                 onSendTemporaryWater(deviceKey)
             }
         )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DrinkingProgressScreen(
+    progress: DrinkingProgress,
+    secondsUntilReturn: Int,
+    onBack: () -> Unit
+) {
+    val accent = when (progress.phase) {
+        DrinkingPhase.FAILED, DrinkingPhase.UNKNOWN -> MaterialTheme.colorScheme.error
+        else -> when (progress.waterType) {
+            WaterType.HOT -> HotRed
+            WaterType.COLD -> ColdBlue
+            null -> MaterialTheme.colorScheme.primary
+        }
+    }
+    val title = when (progress.phase) {
+        DrinkingPhase.SENDING -> "正在发送接水指令"
+        DrinkingPhase.IN_PROGRESS -> "可接水"
+        DrinkingPhase.SETTLING, DrinkingPhase.FINISHED -> "接水结束"
+        DrinkingPhase.FAILED -> "接水指令发送失败"
+        DrinkingPhase.UNKNOWN -> "暂时无法确认接水状态"
+    }
+    val description = when (progress.phase) {
+        DrinkingPhase.SENDING -> "正在联系饮水机，请稍候"
+        DrinkingPhase.IN_PROGRESS -> "按动饮水机接水按钮可进行接水"
+        DrinkingPhase.SETTLING -> "正在更新余额，计算本次消费"
+        DrinkingPhase.FINISHED -> "$secondsUntilReturn 秒后自动返回主菜单"
+        DrinkingPhase.FAILED -> progress.detail.orEmpty()
+        DrinkingPhase.UNKNOWN -> progress.detail.orEmpty()
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("接水状态", fontWeight = FontWeight.SemiBold) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回主菜单")
+                    }
+                }
+            )
+        }
+    ) { contentPadding ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(contentPadding)
+                .padding(horizontal = 24.dp, vertical = 32.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(24.dp)
+            ) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(26.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 24.dp, vertical = 36.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Surface(
+                            modifier = Modifier.size(88.dp),
+                            shape = CircleShape,
+                            color = accent.copy(alpha = 0.12f)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                if (progress.phase == DrinkingPhase.IN_PROGRESS) {
+                                    Icon(
+                                        painter = painterResource(R.drawable.ic_filling_cup),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(68.dp),
+                                        tint = Color.Unspecified
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = when (progress.phase) {
+                                            DrinkingPhase.SENDING -> Icons.AutoMirrored.Filled.Send
+                                            DrinkingPhase.SETTLING, DrinkingPhase.FINISHED -> Icons.Default.CheckCircle
+                                            else -> Icons.Default.Info
+                                        },
+                                        contentDescription = null,
+                                        modifier = Modifier.size(48.dp),
+                                        tint = accent
+                                    )
+                                }
+                            }
+                        }
+                        Text(
+                            text = progress.waterType?.let { "${it.label}接水" } ?: "临时设备接水",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.labelLarge
+                        )
+                        Text(
+                            text = title,
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center
+                        )
+                        if (progress.phase == DrinkingPhase.SETTLING || progress.phase == DrinkingPhase.FINISHED) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = "本次消费",
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    style = MaterialTheme.typography.labelLarge
+                                )
+                                Text(
+                                    text = if (progress.phase == DrinkingPhase.SETTLING) {
+                                        "计算中…"
+                                    } else {
+                                        progress.consumptionAmount?.let { "¥ $it" } ?: "暂未获取"
+                                    },
+                                    color = accent,
+                                    style = MaterialTheme.typography.headlineMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    textAlign = TextAlign.Center
+                                )
+                            }
+                        }
+                        Text(
+                            text = description,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodyLarge,
+                            textAlign = TextAlign.Center
+                        )
+                        progress.orderNumber?.let { orderNumber ->
+                            Text(
+                                text = "单号 ${orderNumber.takeLast(8)}",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                    }
+                }
+                OutlinedButton(
+                    onClick = onBack,
+                    modifier = Modifier.fillMaxWidth().height(52.dp),
+                    shape = RoundedCornerShape(18.dp)
+                ) {
+                    Text("返回主菜单")
+                }
+            }
+        }
     }
 }
 
@@ -801,6 +997,13 @@ private fun SettingsScreen(
                             icon = Icons.Default.Build,
                             title = "绑定喝水设备",
                             description = "在“设备”页面分别扫描热水和冷水设备二维码。绑定后会保存在本机，日常喝水无需每次扫码。"
+                        )
+                    }
+                    item {
+                        HelpCard(
+                            icon = Icons.Default.PlayArrow,
+                            title = "查看接水状态",
+                            description = "发送接水指令后会进入接水状态页面。接水完成后显示“接水结束”，根据接水前后余额变化显示本次消费，倒计时 3 秒自动返回主菜单。"
                         )
                     }
                     item {

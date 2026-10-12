@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="96dp"
+    android:height="96dp"
+    android:viewportWidth="96"
+    android:viewportHeight="96">
+    <!-- Blue tumbler, straw and dark outlines match the boy's cup in the app logo. -->
+    <path
+        android:fillColor="#DDF5FF"
+        android:strokeColor="#19263D"
+        android:strokeWidth="3"
+        android:strokeLineJoin="round"
+        android:pathData="M24,36H72L66,78C65,86 31,86 30,78Z" />
+    <path
+        android:fillColor="#6EC9E9"
+        android:pathData="M28,53C38,49 58,49 68,53L64.5,78C64,82 32,82 31.5,78Z" />
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#2FA9D5"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:pathData="M65,45L61,78M47,52L45,63M43,52L41,63" />
+    <path
+        android:fillColor="#F5FCFF"
+        android:pathData="M28,53C38,49 58,49 68,53C58,57 38,57 28,53Z" />
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="3"
+        android:strokeLineCap="round"
+        android:pathData="M30,42L35,77" />
+    <path
+        android:fillColor="#A7E4F8"
+        android:strokeColor="#19263D"
+        android:strokeWidth="3"
+        android:strokeLineJoin="round"
+        android:pathData="M23,35C23,24 73,24 73,35L72,41C59,35 37,35 24,41Z" />
+    <path
+        android:fillColor="#ECFAFF"
+        android:strokeColor="#19263D"
+        android:strokeWidth="2.5"
+        android:strokeLineJoin="round"
+        android:pathData="M53,9L60,10.5L51,34L44,33Z" />
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#66C8EA"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"
+        android:pathData="M56,12L49,30" />
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#19263D"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:pathData="M24,41C37,34 59,34 72,41" />
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:pathData="M28,33C31,30 36,29 41,29" />
+    <!-- Falling water keeps the illustration readable as a filling action. -->
+    <path
+        android:fillColor="#5CC9F3"
+        android:strokeColor="#19263D"
+        android:strokeWidth="2"
+        android:strokeLineJoin="round"
+        android:pathData="M34,8C32,11 28,15 28,18C28,26 40,26 40,18C40,15 36,11 34,8Z" />
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.5"
+        android:strokeLineCap="round"
+        android:pathData="M32,17C30,19 31,21 33,21" />
+</vector>
