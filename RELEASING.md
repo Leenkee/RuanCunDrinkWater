@@ -1,6 +1,6 @@
 # 手动发布
 
-推送到 `main` 只运行测试、编译及签名，并将 APK 存入该次 Actions 的 Artifacts；不会发布 GitHub Release。推送标签也不会自动发布。
+发布工作流只在手动触发时运行。推送到 `main` 或推送标签均不会自动触发该工作流，每次运行发布脚本只触发一次 Actions。
 
 需要发布时，可在项目根目录直接运行：
 
@@ -8,7 +8,7 @@
 ./scripts/publish-release.sh
 ```
 
-脚本会自动读取源码中的 `versionName`，检查工作区、`main` 分支及远端同步状态，并在一次确认后触发 GitHub Actions，无需打开网页或手填版本号。自动化环境可使用 `./scripts/publish-release.sh --yes` 跳过确认。
+脚本会自动读取源码中的 `versionName` 和最新提交标题，检查工作区、`main` 分支及远端同步状态，并在一次确认后触发 GitHub Actions，无需打开网页或手填版本号。Actions 的运行名称显示为“发布 v版本号 · 最新提交标题”，便于直接查看本次修改。自动化环境可使用 `./scripts/publish-release.sh --yes` 跳过确认。
 
 发布前请确认：
 
@@ -25,7 +25,8 @@
 ```bash
 gh workflow run android-release.yml \
   --repo Leenkee/ShanRuanDrinkWater --ref main \
-  -f publish_release=true -f release_version=1.3.16
+  -f publish_release=true -f release_version=1.3.16 \
+  -f change_summary="本次修改说明"
 ```
 
 只有发布正式 Release 后，应用内检查更新才会发现新版本；Actions Artifacts 不会被视为已发布版本。

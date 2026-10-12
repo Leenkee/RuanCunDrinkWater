@@ -63,11 +63,13 @@ if [[ "$ASSUME_YES" != true ]]; then
 fi
 
 echo "正在触发 $TAG_NAME 的发布工作流……"
+CHANGE_SUMMARY=$(git log -1 --pretty=%s)
 gh workflow run "$WORKFLOW" \
     --repo "$REPOSITORY" \
     --ref main \
     -f publish_release=true \
-    -f release_version="$VERSION_NAME"
+    -f release_version="$VERSION_NAME" \
+    -f change_summary="$CHANGE_SUMMARY"
 
 echo "发布任务已提交。可在本地运行以下命令查看进度："
 echo "gh run list --repo $REPOSITORY --workflow $WORKFLOW --limit 1"

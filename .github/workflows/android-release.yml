@@ -1,9 +1,10 @@
 name: Android Release
+run-name: >-
+  ${{ inputs.publish_release && '发布' || '构建' }}
+  ${{ inputs.release_version && format('v{0}', inputs.release_version) || github.ref_name }} ·
+  ${{ inputs.change_summary || '手动触发' }}
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
     inputs:
       publish_release:
@@ -12,6 +13,10 @@ on:
         default: false
       release_version:
         description: "发布时填写版本号，如 1.3.14，必须与所选分支源码一致"
+        type: string
+        default: ""
+      change_summary:
+        description: "本次修改说明；发布脚本自动读取最新提交标题"
         type: string
         default: ""
 
