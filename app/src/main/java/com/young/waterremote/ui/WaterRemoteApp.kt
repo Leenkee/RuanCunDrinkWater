@@ -942,9 +942,9 @@ private fun SettingsScreen(
                                 supportingContent = {
                                     Text(
                                         if (state.isAutoUpdateEnabled) {
-                                            "每天中午 12:00 检查，系统限制可能导致延迟"
+                                            "已开启"
                                         } else {
-                                            "已关闭，仅在手动操作时检查"
+                                            "已关闭"
                                         }
                                     )
                                 },
