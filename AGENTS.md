@@ -1,1 +1,1 @@
-在合适的时候，使用git进行commit，语言为英文
+Use git to commit in proper time. Commit language is English.
