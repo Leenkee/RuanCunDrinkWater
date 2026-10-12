@@ -25,7 +25,7 @@
 ```bash
 gh workflow run android-release.yml \
   --repo Leenkee/ShanRuanDrinkWater --ref main \
-  -f publish_release=true -f release_version=1.3.15
+  -f publish_release=true -f release_version=1.3.16
 ```
 
 只有发布正式 Release 后，应用内检查更新才会发现新版本；Actions Artifacts 不会被视为已发布版本。
