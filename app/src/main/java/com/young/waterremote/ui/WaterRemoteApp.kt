@@ -316,7 +316,7 @@ private fun LoginScreen(
                         .fillMaxWidth()
                         .selectableGroup()
                         .padding(bottom = 14.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     LoginModeTab(
                         selected = loginMode == LoginMode.CODE,
@@ -477,7 +477,7 @@ private fun LoginModeTab(
         modifier = modifier
             .height(52.dp)
             .selectable(selected = selected, role = Role.Tab, onClick = onClick),
-        horizontalAlignment = Alignment.CenterHorizontally,
+        horizontalAlignment = Alignment.Start,
         verticalArrangement = Arrangement.Center
     ) {
         Text(
@@ -489,7 +489,7 @@ private fun LoginModeTab(
         Spacer(modifier = Modifier.height(8.dp))
         Box(
             modifier = Modifier
-                .width(32.dp)
+                .fillMaxWidth()
                 .height(3.dp)
                 .background(
                     color = if (selected) color else MaterialTheme.colorScheme.outlineVariant,
