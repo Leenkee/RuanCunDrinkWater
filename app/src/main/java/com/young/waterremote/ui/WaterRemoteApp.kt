@@ -27,6 +27,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -53,7 +55,6 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -313,19 +314,20 @@ private fun LoginScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .selectableGroup()
                         .padding(bottom = 14.dp),
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    FilterChip(
+                    LoginModeTab(
                         selected = loginMode == LoginMode.CODE,
                         onClick = { loginModeName = LoginMode.CODE.name },
-                        label = { Text("验证码登录") },
+                        label = "验证码登录",
                         modifier = Modifier.weight(1f)
                     )
-                    FilterChip(
+                    LoginModeTab(
                         selected = loginMode == LoginMode.PASSWORD,
                         onClick = { loginModeName = LoginMode.PASSWORD.name },
-                        label = { Text("密码登录") },
+                        label = "密码登录",
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -339,6 +341,7 @@ private fun LoginScreen(
                     enabled = !submitBusy,
                     singleLine = true,
                     label = { Text("手机号") },
+                    shape = RoundedCornerShape(16.dp),
                     leadingIcon = { Icon(Icons.Default.Phone, contentDescription = null) },
                     keyboardOptions = KeyboardOptions(
                         keyboardType = KeyboardType.Phone,
@@ -360,6 +363,7 @@ private fun LoginScreen(
                             enabled = !submitBusy,
                             singleLine = true,
                             label = { Text("验证码") },
+                            shape = RoundedCornerShape(16.dp),
                             leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
                             keyboardOptions = KeyboardOptions(
                                 keyboardType = KeyboardType.Number,
@@ -400,6 +404,7 @@ private fun LoginScreen(
                         enabled = !submitBusy,
                         singleLine = true,
                         label = { Text("密码") },
+                        shape = RoundedCornerShape(16.dp),
                         leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null) },
                         visualTransformation = PasswordVisualTransformation(),
                         keyboardOptions = KeyboardOptions(
@@ -453,6 +458,44 @@ private fun LoginScreen(
         ) {
             Icon(Icons.Default.Settings, contentDescription = "设置")
         }
+    }
+}
+
+@Composable
+private fun LoginModeTab(
+    selected: Boolean,
+    onClick: () -> Unit,
+    label: String,
+    modifier: Modifier = Modifier
+) {
+    val color = if (selected) {
+        MaterialTheme.colorScheme.primary
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    Column(
+        modifier = modifier
+            .height(52.dp)
+            .selectable(selected = selected, role = Role.Tab, onClick = onClick),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Text(
+            text = label,
+            color = color,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Box(
+            modifier = Modifier
+                .width(32.dp)
+                .height(3.dp)
+                .background(
+                    color = if (selected) color else MaterialTheme.colorScheme.outlineVariant,
+                    shape = RoundedCornerShape(2.dp)
+                )
+        )
     }
 }
 
