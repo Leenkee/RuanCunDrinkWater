@@ -1,6 +1,7 @@
 package com.young.waterremote.ui
 
 import android.Manifest
+import android.content.ActivityNotFoundException
 import android.content.pm.PackageManager
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -119,6 +120,8 @@ import com.young.waterremote.data.WaterType
 import com.young.waterremote.ui.theme.ColdBlue
 import com.young.waterremote.ui.theme.HotRed
 import kotlinx.coroutines.delay
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 
 private enum class MainSection(val title: String, val label: String) {
     CONTROL("软村饮水", "控制"),
@@ -149,6 +152,16 @@ fun WaterRemoteApp(
 ) {
     val state by viewModel.state.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
+    val context = LocalContext.current
+    var isChoosingLogDestination by rememberSaveable { mutableStateOf(false) }
+    val logExportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("text/plain")
+    ) { destination ->
+        isChoosingLogDestination = false
+        if (destination != null) {
+            viewModel.exportLogs(context.applicationContext.contentResolver, destination)
+        }
+    }
     val uriHandler = LocalUriHandler.current
     val lifecycleOwner = LocalLifecycleOwner.current
     var isResumed by remember {
@@ -198,6 +211,17 @@ fun WaterRemoteApp(
                 onOpenVersion = { settingsPageName = SettingsPage.VERSION.name },
                 onOpenHelp = { settingsPageName = SettingsPage.HELP.name },
                 onOpenPromotion = { settingsPageName = SettingsPage.PROMOTION.name },
+                isPreparingLogExport = isChoosingLogDestination,
+                onExportLogs = {
+                    isChoosingLogDestination = true
+                    val date = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"))
+                    try {
+                        logExportLauncher.launch("RuanCunDrinkWater-logs-$date.txt")
+                    } catch (_: ActivityNotFoundException) {
+                        isChoosingLogDestination = false
+                        Toast.makeText(context, "无法打开文件保存界面", Toast.LENGTH_SHORT).show()
+                    }
+                },
                 onOpenIosWater = { uriHandler.openUri(IOS_WATER_URL) }
             )
         } else if (state.isLoggedIn) {
@@ -866,6 +890,8 @@ private fun SettingsScreen(
     onOpenVersion: () -> Unit,
     onOpenHelp: () -> Unit,
     onOpenPromotion: () -> Unit,
+    isPreparingLogExport: Boolean,
+    onExportLogs: () -> Unit,
     onOpenIosWater: () -> Unit
 ) {
     Scaffold(
@@ -950,6 +976,14 @@ private fun SettingsScreen(
                                 description = "了解登录、设备、余额和桌面小组件",
                                 icon = Icons.Default.Person,
                                 onClick = onOpenHelp
+                            )
+                            HorizontalDivider(modifier = Modifier.padding(start = 56.dp))
+                            SettingsActionRow(
+                                title = "导出日志",
+                                description = "保存最近 7 天的日志，用于排查问题",
+                                icon = Icons.AutoMirrored.Filled.Send,
+                                loading = state.isExportingLogs || isPreparingLogExport,
+                                onClick = onExportLogs
                             )
                             HorizontalDivider(modifier = Modifier.padding(start = 56.dp))
                             SettingsActionRow(
@@ -1043,6 +1077,13 @@ private fun SettingsScreen(
                             icon = Icons.Default.Refresh,
                             title = "查看账户余额",
                             description = "控制页面和“我的”页面会显示小天同学喝水账户余额；进入“我的”或饮水结束后会自动刷新。"
+                        )
+                    }
+                    item {
+                        HelpCard(
+                            icon = Icons.Default.Info,
+                            title = "导出问题日志",
+                            description = "出现接水异常后，进入“设置 → 导出日志”选择保存位置，再将文件提供给开发者排查。应用仅保留最近 7 天日志，手机号和登录凭证等敏感信息会脱敏。"
                         )
                     }
                     item {

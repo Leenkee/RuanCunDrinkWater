@@ -124,6 +124,39 @@ internal object Protocol {
         return parseReceipt(decryptResponse(body))
     }
 
+    /** Keep the envelope and decoded water response, never the reversible ciphertext. */
+    internal fun diagnosticResponse(body: String, includeDecryptedData: Boolean): JsonObject {
+        val response = runCatching { parseResponseObject(body) }.getOrNull()
+            ?: return JsonObject().apply {
+                addProperty("format", "non-object or invalid JSON; body omitted")
+            }
+        return JsonObject().apply {
+            response.entrySet().filter { it.key != "data" }.forEach { (key, value) ->
+                add(key, value.deepCopy())
+            }
+            val data = response.get("data")
+            addProperty("hasData", data != null && !data.isJsonNull)
+            if (data == null || data.isJsonNull) return@apply
+            addProperty("dataFormat", when {
+                data.isJsonObject -> "object"
+                data.isJsonArray -> "array"
+                else -> "primitive"
+            })
+            if (!includeDecryptedData) return@apply
+            if (data.isJsonObject || data.isJsonArray) {
+                add("unencryptedData", data.deepCopy())
+            } else {
+                runCatching { decryptResponse(body) }
+                    .onSuccess { decoded ->
+                        val json = runCatching { JsonParser.parseString(decoded) }.getOrNull()
+                        if (json != null) add("decryptedData", json)
+                        else addProperty("decryptedFormat", "invalid JSON; body omitted")
+                    }
+                    .onFailure { addProperty("decryptionError", it.javaClass.simpleName) }
+            }
+        }
+    }
+
     fun parseDrinkingStatusResponse(
         body: String,
         expectedOrderNumber: String

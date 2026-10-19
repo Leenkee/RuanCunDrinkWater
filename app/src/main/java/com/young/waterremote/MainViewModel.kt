@@ -1,6 +1,8 @@
 package com.young.waterremote
 
+import android.content.ContentResolver
 import android.content.Context
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -16,9 +18,11 @@ import com.young.waterremote.data.UserSession
 import com.young.waterremote.data.WaterType
 import com.young.waterremote.data.VersionComparator
 import com.young.waterremote.data.calculateConsumptionAmount
+import com.young.waterremote.diagnostics.DiagnosticLogs
 import com.young.waterremote.updates.AutoUpdateScheduler
 import com.young.waterremote.updates.AutoUpdateStore
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -26,6 +30,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.IOException
 import java.util.concurrent.atomic.AtomicLong
 
 data class UiMessage(val id: Long, val text: String)
@@ -58,6 +64,7 @@ data class AppUiState(
     val isSendingTemporaryWater: Boolean = false,
     val drinkingProgress: DrinkingProgress? = null,
     val isCheckingUpdate: Boolean = false,
+    val isExportingLogs: Boolean = false,
     val availableRelease: AvailableRelease? = null,
     val automaticRelease: AvailableRelease? = null,
     val isAutoUpdateEnabled: Boolean = false,
@@ -238,6 +245,30 @@ class MainViewModel(
         _state.update { it.copy(isWaterConfirmationEnabled = enabled) }
     }
 
+    fun exportLogs(contentResolver: ContentResolver, destination: Uri) {
+        if (_state.value.isExportingLogs) return
+        _state.update { it.copy(isExportingLogs = true) }
+        DiagnosticLogs.record("logs.export_requested")
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    val output = contentResolver.openOutputStream(destination, "wt")
+                        ?: throw IOException("Cannot open log export destination")
+                    output.use { DiagnosticLogs.export(it) }
+                }
+                DiagnosticLogs.record("logs.export_completed")
+                showMessage("日志已导出")
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                DiagnosticLogs.failure("logs.export_failed", error)
+                showMessage("日志导出失败，请重新选择保存位置")
+            } finally {
+                _state.update { it.copy(isExportingLogs = false) }
+            }
+        }
+    }
+
     fun checkForUpdates() {
         if (_state.value.isCheckingUpdate) return
         val repository = BuildConfig.GITHUB_REPOSITORY.trim()
@@ -316,6 +347,11 @@ class MainViewModel(
         if (current.sendingWater != null || current.isSendingTemporaryWater) return
 
         val requestId = drinkingRequestIds.incrementAndGet()
+        DiagnosticLogs.record("water.requested", mapOf(
+            "drinkingRequestId" to requestId,
+            "waterType" to (sendingType?.name ?: "TEMPORARY"),
+            "deviceFingerprint" to DiagnosticLogs.deviceFingerprint(deviceKey)
+        ))
         _state.update {
             it.copy(
                 sendingWater = sendingType,
@@ -449,6 +485,7 @@ class MainViewModel(
         requestId: Long,
         update: (DrinkingProgress) -> DrinkingProgress
     ) {
+        val previous = _state.value.drinkingProgress
         _state.update { state ->
             val progress = state.drinkingProgress
             if (progress?.requestId == requestId) {
@@ -456,6 +493,16 @@ class MainViewModel(
             } else {
                 state
             }
+        }
+        val progress = _state.value.drinkingProgress
+        if (progress?.requestId == requestId && progress != previous) {
+            DiagnosticLogs.record("water.progress", mapOf(
+                "drinkingRequestId" to requestId,
+                "phase" to progress.phase.name,
+                "orderNumber" to progress.orderNumber,
+                "detail" to progress.detail,
+                "consumptionAmount" to progress.consumptionAmount
+            ))
         }
     }
 
@@ -520,6 +567,7 @@ class MainViewModel(
     }
 
     private fun showFailure(error: Throwable) {
+        DiagnosticLogs.failure("app.operation_failed", error)
         showMessage(failureMessage(error))
     }
 
@@ -530,6 +578,7 @@ class MainViewModel(
         }.orEmpty().ifBlank { "操作失败，请稍后再试" }
 
     private fun showMessage(text: String) {
+        DiagnosticLogs.record("ui.message", mapOf("text" to text))
         _state.update { it.copy(message = UiMessage(messageIds.incrementAndGet(), text)) }
     }
 }

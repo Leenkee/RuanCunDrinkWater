@@ -25,7 +25,7 @@
 ```bash
 gh workflow run android-release.yml \
   --repo Leenkee/RuanCunDrinkWater --ref main \
-  -f publish_release=true -f release_version=1.3.20 \
+  -f publish_release=true -f release_version=1.3.21 \
   -f change_summary="本次修改说明"
 ```
 
