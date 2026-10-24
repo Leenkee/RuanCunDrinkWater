@@ -14,6 +14,7 @@ import com.young.waterremote.ui.theme.WaterRemoteTheme
 import com.young.waterremote.updates.AutoUpdateScheduler
 
 class MainActivity : ComponentActivity() {
+    private lateinit var viewModel: MainViewModel
     private var widgetRequestSequence = 0L
     private var widgetActionRequest by mutableStateOf<WidgetActionRequest?>(null)
 
@@ -22,7 +23,7 @@ class MainActivity : ComponentActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         acceptWidgetAction(intent)
 
-        val viewModel = ViewModelProvider(
+        viewModel = ViewModelProvider(
             this,
             MainViewModelFactory(applicationContext)
         )[MainViewModel::class.java]
@@ -46,6 +47,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        viewModel.reconcileDrinkingReturn()
         AutoUpdateScheduler(this).reconcile()
     }
 

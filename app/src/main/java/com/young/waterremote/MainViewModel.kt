@@ -3,6 +3,7 @@ package com.young.waterremote
 import android.content.ContentResolver
 import android.content.Context
 import android.net.Uri
+import android.os.SystemClock
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -51,7 +52,9 @@ data class DrinkingProgress(
     val phase: DrinkingPhase = DrinkingPhase.SENDING,
     val orderNumber: String? = null,
     val consumptionAmount: String? = null,
-    val detail: String? = null
+    val detail: String? = null,
+    val returnCountdown: DrinkingReturnCountdown? = null,
+    val secondsUntilReturn: Int = 3
 )
 
 data class AppUiState(
@@ -84,6 +87,7 @@ class MainViewModel(
 ) : ViewModel() {
     private val messageIds = AtomicLong(0)
     private val drinkingRequestIds = AtomicLong(0)
+    private var drinkingReturnJob: Job? = null
     private val drinkingStatusJobs = mutableMapOf<String, Job>()
     private val _state = MutableStateFlow(
         AppUiState(
@@ -475,7 +479,7 @@ class MainViewModel(
         }
     }
 
-    fun dismissDrinkingProgress(requestId: Long) {
+    private fun dismissDrinkingProgress(requestId: Long) {
         _state.update {
             if (it.drinkingProgress?.requestId == requestId) it.copy(drinkingProgress = null) else it
         }
@@ -489,13 +493,28 @@ class MainViewModel(
         _state.update { state ->
             val progress = state.drinkingProgress
             if (progress?.requestId == requestId) {
-                state.copy(drinkingProgress = update(progress))
+                val updated = update(progress)
+                val terminal = updated.phase == DrinkingPhase.FINISHED ||
+                    updated.phase == DrinkingPhase.FAILED || updated.phase == DrinkingPhase.UNKNOWN
+                state.copy(drinkingProgress = if (terminal && updated.returnCountdown == null) {
+                    updated.copy(returnCountdown = DrinkingReturnCountdown(SystemClock.elapsedRealtime()))
+                } else updated)
             } else {
                 state
             }
         }
         val progress = _state.value.drinkingProgress
         if (progress?.requestId == requestId && progress != previous) {
+            if (progress.returnCountdown != null && previous?.returnCountdown == null) {
+                drinkingReturnJob?.cancel()
+                drinkingReturnJob = viewModelScope.launch {
+                    while (_state.value.drinkingProgress?.requestId == requestId) {
+                        reconcileDrinkingReturn()
+                        if (_state.value.drinkingProgress?.requestId != requestId) break
+                        delay(100L)
+                    }
+                }
+            }
             DiagnosticLogs.record("water.progress", mapOf(
                 "drinkingRequestId" to requestId,
                 "phase" to progress.phase.name,
@@ -503,6 +522,22 @@ class MainViewModel(
                 "detail" to progress.detail,
                 "consumptionAmount" to progress.consumptionAmount
             ))
+        }
+    }
+
+    // elapsedRealtime includes deep sleep; reconcile on resume before drawing the screen.
+    fun reconcileDrinkingReturn() {
+        val progress = _state.value.drinkingProgress ?: return
+        val countdown = progress.returnCountdown ?: return
+        val remaining = countdown.secondsRemaining(SystemClock.elapsedRealtime())
+        if (remaining == 0) {
+            dismissDrinkingProgress(progress.requestId)
+        } else {
+            _state.update { state ->
+                if (state.drinkingProgress?.requestId == progress.requestId) {
+                    state.copy(drinkingProgress = state.drinkingProgress.copy(secondsUntilReturn = remaining))
+                } else state
+            }
         }
     }
 

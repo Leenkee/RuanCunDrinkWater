@@ -119,7 +119,6 @@ import com.young.waterremote.data.AvailableRelease
 import com.young.waterremote.data.WaterType
 import com.young.waterremote.ui.theme.ColdBlue
 import com.young.waterremote.ui.theme.HotRed
-import kotlinx.coroutines.delay
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 
@@ -142,7 +141,6 @@ private enum class SettingsPage(val title: String) {
 }
 
 private const val IOS_WATER_URL = "https://water.simulacra.me/"
-private const val DRINKING_RETURN_COUNTDOWN_SECONDS = 3
 
 @Composable
 fun WaterRemoteApp(
@@ -236,9 +234,7 @@ fun WaterRemoteApp(
                 onSaveBindings = viewModel::saveBindings,
                 onSendWater = viewModel::sendWater,
                 onSendTemporaryWater = viewModel::sendTemporaryWater,
-                onDismissDrinkingProgress = viewModel::dismissDrinkingProgress,
                 onLogout = viewModel::logout,
-                isResumed = isResumed,
                 widgetActionRequest = widgetActionRequest,
                 onWidgetActionConsumed = onWidgetActionConsumed
             )
@@ -533,9 +529,7 @@ private fun MainShell(
     onSaveBindings: (String, String) -> Unit,
     onSendWater: (WaterType) -> Unit,
     onSendTemporaryWater: (String) -> Unit,
-    onDismissDrinkingProgress: (Long) -> Unit,
     onLogout: () -> Unit,
-    isResumed: Boolean,
     widgetActionRequest: WidgetActionRequest?,
     onWidgetActionConsumed: (Long) -> Unit
 ) {
@@ -545,8 +539,8 @@ private fun MainShell(
     var pendingWater by remember { mutableStateOf<WaterType?>(null) }
     var pendingTemporaryDeviceKey by rememberSaveable { mutableStateOf<String?>(null) }
     val drinkingProgress = state.drinkingProgress
-    var secondsUntilReturn by remember(drinkingProgress?.requestId, drinkingProgress?.phase) {
-        mutableStateOf(DRINKING_RETURN_COUNTDOWN_SECONDS)
+    LaunchedEffect(drinkingProgress?.requestId) {
+        if (drinkingProgress != null) sectionName = MainSection.CONTROL.name
     }
 
     LaunchedEffect(section) {
@@ -620,26 +614,10 @@ private fun MainShell(
     }
 
     if (drinkingProgress != null) {
-        val returnToMainMenu = {
-            sectionName = MainSection.CONTROL.name
-            onDismissDrinkingProgress(drinkingProgress.requestId)
-        }
-        val isTerminal = drinkingProgress.phase == DrinkingPhase.FINISHED ||
-            drinkingProgress.phase == DrinkingPhase.FAILED ||
-            drinkingProgress.phase == DrinkingPhase.UNKNOWN
         BackHandler { }
-        LaunchedEffect(drinkingProgress.requestId, drinkingProgress.phase, isResumed) {
-            if (isTerminal && isResumed) {
-                for (seconds in DRINKING_RETURN_COUNTDOWN_SECONDS downTo 1) {
-                    secondsUntilReturn = seconds
-                    delay(1_000L)
-                }
-                returnToMainMenu()
-            }
-        }
         DrinkingProgressScreen(
             progress = drinkingProgress,
-            secondsUntilReturn = secondsUntilReturn
+            secondsUntilReturn = drinkingProgress.secondsUntilReturn
         )
         return
     }
@@ -1299,7 +1277,7 @@ private fun ControlScreen(
                     text = if (state.isSendingTemporaryWater) {
                         "正在向临时设备发送指令…"
                     } else {
-                        "扫码临时设备喝水"
+                        "扫码临时设备饮水"
                     },
                     modifier = Modifier.padding(start = 9.dp)
                 )
