@@ -9,6 +9,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.young.waterremote.data.AvailableRelease
 import com.young.waterremote.data.DeviceBindings
+import com.young.waterremote.data.DrinkingStatus
 import com.young.waterremote.data.GitHubUpdateChecker
 import com.young.waterremote.data.InputValidator
 import com.young.waterremote.data.LegacyWaterApi
@@ -39,6 +40,7 @@ data class UiMessage(val id: Long, val text: String)
 
 enum class DrinkingPhase {
     SENDING,
+    WAITING_FOR_DEVICE,
     IN_PROGRESS,
     SETTLING,
     FINISHED,
@@ -320,7 +322,7 @@ class MainViewModel(
         sendWaterCommand(
             deviceKey = deviceKey,
             sendingType = type,
-            successMessage = "${type.label}指令已发送"
+            submissionMessage = "${type.label}接水请求已提交"
         )
     }
 
@@ -334,14 +336,14 @@ class MainViewModel(
         sendWaterCommand(
             deviceKey = normalized,
             sendingType = null,
-            successMessage = "临时设备出水指令已发送"
+            submissionMessage = "临时设备接水请求已提交"
         )
     }
 
     private fun sendWaterCommand(
         deviceKey: String,
         sendingType: WaterType?,
-        successMessage: String
+        submissionMessage: String
     ) {
         val current = _state.value
         val session = current.session ?: run {
@@ -387,10 +389,10 @@ class MainViewModel(
                     }
                     val orderNumber = receipt.orderNumber?.takeIf { it.isNotBlank() }
                     val suffix = orderNumber?.let { "，单号 ${it.takeLast(8)}" }.orEmpty()
-                    showMessage("$successMessage$suffix")
+                    showMessage("$submissionMessage$suffix")
                     if (orderNumber != null) {
                         updateDrinkingProgress(requestId) {
-                            it.copy(phase = DrinkingPhase.IN_PROGRESS, orderNumber = orderNumber)
+                            it.copy(phase = DrinkingPhase.WAITING_FOR_DEVICE, orderNumber = orderNumber)
                         }
                         monitorDrinkingCompletion(
                             session.copy(balance = balanceBefore), deviceKey, orderNumber, requestId
@@ -443,7 +445,16 @@ class MainViewModel(
         drinkingStatusJobs.remove(orderNumber)?.cancel()
         val job = viewModelScope.launch {
             try {
-                val finished = DrinkingStatusMonitor.awaitCompletion {
+                var lastStatus: DrinkingStatus? = null
+                val finished = DrinkingStatusMonitor.awaitCompletion(onStatus = { status ->
+                    lastStatus = status
+                    val phase = when (status) {
+                        DrinkingStatus.WAITING_FOR_DEVICE -> DrinkingPhase.WAITING_FOR_DEVICE
+                        DrinkingStatus.IN_PROGRESS -> DrinkingPhase.IN_PROGRESS
+                        DrinkingStatus.FINISHED -> DrinkingPhase.SETTLING
+                    }
+                    updateDrinkingProgress(requestId) { it.copy(phase = phase) }
+                }) {
                     if (_state.value.session?.token != session.token) {
                         throw CancellationException("Session changed")
                     }
@@ -455,17 +466,20 @@ class MainViewModel(
                 }
                 if (_state.value.session?.token != session.token) return@launch
                 if (finished) {
-                    updateDrinkingProgress(requestId) { it.copy(phase = DrinkingPhase.SETTLING) }
                     val consumptionAmount = refreshBalanceAfterDrinking(session)
                     updateDrinkingProgress(requestId) {
                         it.copy(phase = DrinkingPhase.FINISHED, consumptionAmount = consumptionAmount)
                     }
                 } else {
-                    val detail = "暂时无法确认接水是否结束，请查看饮水机，结束后手动刷新余额。"
+                    val detail = if (lastStatus == DrinkingStatus.WAITING_FOR_DEVICE) {
+                        "等待指令下发超时，尚未确认饮水机可接水，请查看饮水机状态后再操作。"
+                    } else {
+                        "暂时无法确认接水是否结束，请查看饮水机，结束后手动刷新余额。"
+                    }
                     updateDrinkingProgress(requestId) {
                         it.copy(phase = DrinkingPhase.UNKNOWN, detail = detail)
                     }
-                    showMessage("未能确认本次出水结束，请手动刷新余额")
+                    showMessage(detail)
                 }
             } catch (error: SessionInvalidException) {
                 handleInvalidSession(error)

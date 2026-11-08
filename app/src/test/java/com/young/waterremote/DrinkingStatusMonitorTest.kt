@@ -1,6 +1,9 @@
 package com.young.waterremote
 
+import com.google.gson.JsonObject
 import com.young.waterremote.data.DrinkingStatus
+import com.young.waterremote.data.LegacyCrypto
+import com.young.waterremote.data.Protocol
 import com.young.waterremote.data.RemoteApiException
 import com.young.waterremote.data.SessionInvalidException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -62,6 +65,55 @@ class DrinkingStatusMonitorTest {
 
         assertTrue(finished)
         assertEquals(listOf(1_000L, 2_000L), queryTimes)
+    }
+
+    @Test
+    fun delayedDispatchReportsWaitingBeforeReadinessAndCompletion() = runTest {
+        val observed = mutableListOf<DrinkingStatus>()
+        val responses = listOf(
+            statusResponse(-1, """{"send_time":0}"""),
+            statusResponse(-1, """{"send_time":1794119824}"""),
+            statusResponse(200, """{"order":{"order_sn":"order-1","order_state":"4"}}""")
+        ).iterator()
+        val completion = async {
+            DrinkingStatusMonitor.awaitCompletion(onStatus = { observed.add(it) }) {
+                Protocol.parseDrinkingStatusResponse(responses.next(), "order-1")
+            }
+        }
+        runCurrent()
+
+        advanceTimeBy(1_000)
+        runCurrent()
+        assertEquals(listOf(DrinkingStatus.WAITING_FOR_DEVICE), observed)
+        assertFalse(completion.isCompleted)
+
+        advanceTimeBy(1_000)
+        runCurrent()
+        assertEquals(listOf(DrinkingStatus.WAITING_FOR_DEVICE, DrinkingStatus.IN_PROGRESS), observed)
+        assertFalse(completion.isCompleted)
+
+        advanceUntilIdle()
+        assertTrue(completion.await())
+        assertEquals(
+            listOf(DrinkingStatus.WAITING_FOR_DEVICE, DrinkingStatus.IN_PROGRESS, DrinkingStatus.FINISHED),
+            observed
+        )
+        assertEquals(3_000L, currentTime)
+    }
+
+    @Test
+    fun undispatchedOrderTimesOutWithoutReportingReadinessOrCompletion() = runTest {
+        val observed = mutableListOf<DrinkingStatus>()
+        val response = statusResponse(-1, """{"send_time":0}""")
+
+        val finished = DrinkingStatusMonitor.awaitCompletion(onStatus = { observed.add(it) }) {
+            Protocol.parseDrinkingStatusResponse(response, "order-1")
+        }
+
+        assertFalse(finished)
+        assertEquals(120, observed.size)
+        assertEquals(setOf(DrinkingStatus.WAITING_FOR_DEVICE), observed.toSet())
+        assertEquals(120_000L, currentTime)
     }
 
     @Test
@@ -132,4 +184,10 @@ class DrinkingStatusMonitorTest {
         assertTrue(job.isCancelled)
         assertEquals(1, attempts)
     }
+
+    private fun statusResponse(code: Int, data: String): String = JsonObject().apply {
+        addProperty("code", code)
+        addProperty("msg", if (code == -1) "订单还未结束！" else "获取成功！")
+        addProperty("data", LegacyCrypto.encrypt(data))
+    }.toString()
 }

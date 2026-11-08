@@ -169,7 +169,7 @@ internal object Protocol {
         val message = serverMessage(response, "")
 
         if (code == -1 && message.contains("订单还未结束")) {
-            return DrinkingStatus.IN_PROGRESS
+            return parseDecryptedObject(decryptResponse(body)).pendingDrinkingStatus()
         }
         if (code != 200) {
             throw RemoteApiException(message.ifBlank { "无法查询出水状态" })
@@ -187,9 +187,17 @@ internal object Protocol {
         return if (order.stringValue("order_state") == "4") {
             DrinkingStatus.FINISHED
         } else {
-            DrinkingStatus.IN_PROGRESS
+            order.pendingDrinkingStatus()
         }
     }
+
+    // An accepted order can still be waiting for the server to dispatch the command.
+    private fun JsonObject.pendingDrinkingStatus(): DrinkingStatus =
+        if ((stringValue("send_time")?.toLongOrNull() ?: 0L) > 0L) {
+            DrinkingStatus.IN_PROGRESS
+        } else {
+            DrinkingStatus.WAITING_FOR_DEVICE
+        }
 
     private fun parseResponseObject(body: String): JsonObject = runCatching {
         JsonParser.parseString(body).asJsonObject

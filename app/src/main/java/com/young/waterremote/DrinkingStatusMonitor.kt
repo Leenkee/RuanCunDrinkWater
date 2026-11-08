@@ -9,7 +9,10 @@ internal object DrinkingStatusMonitor {
     private const val INTERVAL_MS = 1_000L
     private const val MAX_ATTEMPTS = 120
 
-    suspend fun awaitCompletion(fetchStatus: suspend () -> DrinkingStatus): Boolean {
+    suspend fun awaitCompletion(
+        onStatus: (DrinkingStatus) -> Unit = {},
+        fetchStatus: suspend () -> DrinkingStatus
+    ): Boolean {
         repeat(MAX_ATTEMPTS) {
             delay(INTERVAL_MS)
             val status = try {
@@ -21,6 +24,7 @@ internal object DrinkingStatusMonitor {
             } catch (_: Exception) {
                 return@repeat
             }
+            onStatus(status)
             if (status == DrinkingStatus.FINISHED) return true
         }
         return false

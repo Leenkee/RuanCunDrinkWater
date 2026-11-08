@@ -23,6 +23,7 @@ enum class WaterType(val label: String) {
 data class CommandReceipt(val orderNumber: String?)
 
 enum class DrinkingStatus {
+    WAITING_FOR_DEVICE,
     IN_PROGRESS,
     FINISHED
 }

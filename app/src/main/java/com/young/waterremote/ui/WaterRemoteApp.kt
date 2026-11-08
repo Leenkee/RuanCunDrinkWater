@@ -730,6 +730,7 @@ private fun DrinkingProgressScreen(
     }
     val title = when (progress.phase) {
         DrinkingPhase.SENDING -> "正在发送接水指令"
+        DrinkingPhase.WAITING_FOR_DEVICE -> "等待饮水机响应"
         DrinkingPhase.IN_PROGRESS -> "可接水"
         DrinkingPhase.SETTLING, DrinkingPhase.FINISHED -> "接水结束"
         DrinkingPhase.FAILED -> "接水指令发送失败"
@@ -737,6 +738,7 @@ private fun DrinkingProgressScreen(
     }
     val description = when (progress.phase) {
         DrinkingPhase.SENDING -> "正在联系饮水机，请稍候"
+        DrinkingPhase.WAITING_FOR_DEVICE -> "接水请求已提交，正在等待指令下发，请稍候"
         DrinkingPhase.IN_PROGRESS -> "按动饮水机接水按钮可进行接水"
         DrinkingPhase.SETTLING -> "正在更新余额，计算本次消费"
         DrinkingPhase.FINISHED -> "$secondsUntilReturn 秒后自动返回主菜单"
@@ -791,7 +793,8 @@ private fun DrinkingProgressScreen(
                                 } else {
                                     Icon(
                                         imageVector = when (progress.phase) {
-                                            DrinkingPhase.SENDING -> Icons.AutoMirrored.Filled.Send
+                                            DrinkingPhase.SENDING, DrinkingPhase.WAITING_FOR_DEVICE ->
+                                                Icons.AutoMirrored.Filled.Send
                                             DrinkingPhase.SETTLING, DrinkingPhase.FINISHED -> Icons.Default.CheckCircle
                                             else -> Icons.Default.Info
                                         },
