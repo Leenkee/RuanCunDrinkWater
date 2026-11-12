@@ -234,6 +234,7 @@ fun WaterRemoteApp(
                 onSaveBindings = viewModel::saveBindings,
                 onSendWater = viewModel::sendWater,
                 onSendTemporaryWater = viewModel::sendTemporaryWater,
+                onDismissDrinkingProgress = viewModel::dismissDrinkingProgress,
                 onLogout = viewModel::logout,
                 widgetActionRequest = widgetActionRequest,
                 onWidgetActionConsumed = onWidgetActionConsumed
@@ -529,6 +530,7 @@ private fun MainShell(
     onSaveBindings: (String, String) -> Unit,
     onSendWater: (WaterType) -> Unit,
     onSendTemporaryWater: (String) -> Unit,
+    onDismissDrinkingProgress: (Long) -> Unit,
     onLogout: () -> Unit,
     widgetActionRequest: WidgetActionRequest?,
     onWidgetActionConsumed: (Long) -> Unit
@@ -617,7 +619,8 @@ private fun MainShell(
         BackHandler { }
         DrinkingProgressScreen(
             progress = drinkingProgress,
-            secondsUntilReturn = drinkingProgress.secondsUntilReturn
+            secondsUntilReturn = drinkingProgress.secondsUntilReturn,
+            onReturnToMain = { onDismissDrinkingProgress(drinkingProgress.requestId) }
         )
         return
     }
@@ -718,7 +721,8 @@ private fun MainShell(
 @Composable
 private fun DrinkingProgressScreen(
     progress: DrinkingProgress,
-    secondsUntilReturn: Int
+    secondsUntilReturn: Int,
+    onReturnToMain: () -> Unit
 ) {
     val accent = when (progress.phase) {
         DrinkingPhase.FAILED, DrinkingPhase.UNKNOWN -> MaterialTheme.colorScheme.error
@@ -851,6 +855,14 @@ private fun DrinkingProgressScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 style = MaterialTheme.typography.bodySmall
                             )
+                        }
+                        if (progress.returnCountdown != null) {
+                            Button(
+                                onClick = onReturnToMain,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("返回主页面")
+                            }
                         }
                     }
                 }
@@ -1050,7 +1062,7 @@ private fun SettingsScreen(
                         HelpCard(
                             icon = Icons.Default.PlayArrow,
                             title = "查看接水状态",
-                            description = "发送接水指令后进入接水状态页面，接水期间无法手动返回。接水完成后显示“接水结束”和本次消费，倒计时 3 秒自动返回主菜单。发生异常时也会显示原因并倒计时返回。"
+                            description = "发送接水指令后进入接水状态页面，接水期间无法手动返回。接水完成后显示“接水结束”和本次消费，倒计时 3 秒自动返回主菜单。发生异常时也会显示原因并倒计时返回。倒计时期间可点击“返回主页面”提前返回。"
                         )
                     }
                     item {

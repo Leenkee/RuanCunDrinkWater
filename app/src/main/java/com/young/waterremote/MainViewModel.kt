@@ -493,7 +493,12 @@ class MainViewModel(
         }
     }
 
-    private fun dismissDrinkingProgress(requestId: Long) {
+    fun dismissDrinkingProgress(requestId: Long) {
+        val progress = _state.value.drinkingProgress ?: return
+        if (progress.requestId != requestId || progress.returnCountdown == null) return
+
+        drinkingReturnJob?.cancel()
+        drinkingReturnJob = null
         _state.update {
             if (it.drinkingProgress?.requestId == requestId) it.copy(drinkingProgress = null) else it
         }
