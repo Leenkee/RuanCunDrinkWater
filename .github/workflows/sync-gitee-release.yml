@@ -1,5 +1,5 @@
-name: Sync APK to Gitee
-run-name: Sync ${{ inputs.tag }} APK to Gitee
+name: Sync release to Gitee
+run-name: Sync ${{ inputs.tag }} source and APK to Gitee
 
 on:
   workflow_dispatch:
@@ -21,7 +21,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: gitee-apk-sync
+  group: gitee-release-sync
   cancel-in-progress: false
 
 jobs:
@@ -35,6 +35,8 @@ jobs:
     steps:
       - name: Checkout synchronization script
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Validate Gitee download repository
         run: python3 scripts/sync-gitee-release.py --check
@@ -49,6 +51,18 @@ jobs:
             --json tagName,name,body,isDraft,isPrerelease,assets > "$RUNNER_TEMP/github-release.json"
           gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
             --pattern '*.apk' --dir "$RUNNER_TEMP/gitee-apks"
+          python3 - <<'PY'
+          import json, os, pathlib, subprocess
+          path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'github-release.json'
+          release = json.loads(path.read_text())
+          release['sourceCommit'] = subprocess.check_output(
+              ['git', 'rev-parse', 'refs/tags/' + release['tagName'] + '^{commit}'], text=True
+          ).strip()
+          path.write_text(json.dumps(release, ensure_ascii=False))
+          PY
+
+      - name: Synchronize source to Gitee main
+        run: bash scripts/sync-gitee-source.sh
 
       - name: Upload and verify Gitee APK
         run: |

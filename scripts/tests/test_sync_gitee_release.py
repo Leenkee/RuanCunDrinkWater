@@ -1,4 +1,3 @@
-import base64
 from email.parser import BytesParser
 from email.policy import default
 import importlib.util
@@ -26,8 +25,8 @@ class FakeApi:
     def check_repository(self):
         return {"public": True, "private": False, "default_branch": "downloads"}
 
-    def initialize_download_repository(self, repository):
-        return repository["default_branch"]
+    def prepare_source_repository(self, repository, commit):
+        return commit
 
     def request(self, method, path="", **kwargs):
         self.calls.append((method, path, kwargs))
@@ -59,18 +58,18 @@ class GiteeReleaseSyncTest(unittest.TestCase):
         self.apk.write_bytes(b"PK\x03\x04signed-apk-fixture")
         self.digest = sync.sha256(self.apk.read_bytes())
         self.metadata = {
-            "tagName": "v1.3.27", "name": "Release", "body": "Notes",
+            "tagName": "v1.3.27", "name": "Release", "body": "Notes", "sourceCommit": "a" * 40,
             "isDraft": False, "isPrerelease": False,
             "assets": [{"name": "app.apk", "size": self.apk.stat().st_size, "digest": "sha256:" + self.digest}],
         }
 
-    def test_uploads_only_apk_against_the_gitee_branch(self):
+    def test_uploads_apk_against_the_mirrored_source_commit(self):
         api = FakeApi()
         with patch.object(sync, "download_sha256", return_value=self.digest):
             result = sync.sync_release(api, self.metadata, self.apk, self.digest)
         writes = [(path, kwargs) for method, path, kwargs in api.calls if method == "POST"]
         self.assertEqual(["/releases", "/releases/42/attach_files"], [path for path, _ in writes])
-        self.assertEqual("downloads", writes[0][1]["fields"]["target_commitish"])
+        self.assertEqual("a" * 40, writes[0][1]["fields"]["target_commitish"])
         self.assertEqual(self.apk, writes[1][1]["upload"])
         self.assertEqual(self.digest, result["sha256"])
 
@@ -136,15 +135,19 @@ class GiteeReleaseSyncTest(unittest.TestCase):
                 with self.assertRaisesRegex(sync.SyncError, "stable"):
                     sync.select_apk(dict(self.metadata, **{flag: True}), Path(self.directory.name))
 
-    def test_empty_repository_is_initialized_with_only_a_readme(self):
+    def test_verifies_source_commit_before_setting_main_as_default(self):
         api = sync.GiteeApi("owner/downloads", "test-token")
-        with patch.object(api, "request", side_effect=[[], {"commit": {"sha": "gitee-only"}}, {"default_branch": "master"}]) as request:
-            self.assertEqual("master", api.initialize_download_repository({"default_branch": None}))
-        create = request.call_args_list[1]
-        self.assertEqual(("POST", "/contents/README.md"), create.args)
-        content = base64.b64decode(create.kwargs["fields"]["content"]).decode()
-        self.assertIn("不同步应用源码", content)
-        self.assertEqual(3, request.call_count)
+        commit = "a" * 40
+        with patch.object(api, "request", side_effect=[{"sha": commit}, {}]) as request:
+            self.assertEqual(commit, api.prepare_source_repository({"name": "Downloads", "default_branch": "master"}, commit))
+        self.assertEqual(("GET", "/commits/" + commit), request.call_args_list[0].args)
+        self.assertEqual({"name": "Downloads", "default_branch": "main"}, request.call_args_list[1].kwargs["fields"])
+
+    def test_missing_source_commit_cannot_publish_a_new_release(self):
+        api = sync.GiteeApi("owner/downloads", "test-token")
+        with patch.object(api, "request", return_value=None):
+            with self.assertRaisesRegex(sync.SyncError, "Synchronize"):
+                api.prepare_source_repository({}, "a" * 40)
 
     def test_permission_failure_is_not_mistaken_for_a_missing_release(self):
         api = FakeApi()

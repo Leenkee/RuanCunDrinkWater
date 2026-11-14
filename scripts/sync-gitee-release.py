@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-"""Copy a GitHub release APK to Gitee without copying the source repository."""
+"""Verify mirrored source commits and copy signed GitHub release APKs to Gitee."""
 
 import argparse
-import base64
 import hashlib
 import json
 import os
@@ -79,13 +78,13 @@ class GiteeApi:
             data = b"".join(chunks)
             headers["Content-Type"] = f"multipart/form-data; boundary={boundary}"
         try:
-            with urlopen(Request(url, data=data, headers=headers, method=method), timeout=60) as response:
+            with urlopen(Request(url, data=data, headers=headers, method=method), timeout=300 if upload else 60) as response:
                 return json.load(response)
         except HTTPError as error:
             # Never print request URLs or response bodies containing credentials.
             raise SyncError(f"Gitee {method} {self.prefix + path}: HTTP {error.code}", error.code) from None
-        except (URLError, TimeoutError):
-            raise SyncError(f"Cannot connect to Gitee for {method} {self.prefix + path}") from None
+        except (URLError, TimeoutError) as error:
+            raise SyncError(f"Cannot connect to Gitee for {method} {self.prefix + path} ({type(error).__name__})") from None
         except (ValueError, UnicodeError):
             raise SyncError(f"Gitee returned invalid JSON for {method} {self.prefix + path}") from None
 
@@ -96,29 +95,15 @@ class GiteeApi:
             raise SyncError("The Gitee download repository must be public")
         return repository
 
-    def initialize_download_repository(self, repository):
-        branch = repository.get("default_branch")
-        if branch:
-            return branch
-        branches = self.request("GET", "/branches", fields={"per_page": 1})
-        if branches:
-            return branches[0]["name"]
-        readme = (
-            "# 软村饮水安装包\n\n"
-            "本仓库仅用于分发签名 APK，不同步应用源码。\n\n"
-            "请在[发行版](../../releases)中下载 Android 安装包。\n\n"
-            "项目源码：https://github.com/Leenkee/RuanCunDrinkWater\n"
-        )
-        created = self.request("POST", "/contents/README.md", fields={
-            "content": base64.b64encode(readme.encode()).decode(),
-            "message": "Initialize APK download repository",
-        })
-        # This is the Gitee README commit, never a commit from the source repository.
-        commit = created.get("commit", {}).get("sha")
-        branch = self.request("GET").get("default_branch")
-        if not branch and not commit:
-            raise SyncError("Initialize the Gitee download repository with a README before retrying")
-        return branch or commit
+    def prepare_source_repository(self, repository, commit):
+        if not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{40}", commit):
+            raise SyncError("The GitHub release source commit is missing")
+        mirrored = self.request("GET", "/commits/" + commit)
+        if not isinstance(mirrored, dict) or mirrored.get("sha") != commit:
+            raise SyncError("Synchronize the GitHub source to Gitee main before publishing")
+        if repository.get("default_branch") != "main":
+            self.request("PATCH", fields={"name": repository["name"], "default_branch": "main"})
+        return commit
 
 
 def select_apk(metadata, directory):
@@ -145,7 +130,7 @@ def sync_release(api, metadata, apk, expected_digest):
     if not re.fullmatch(r"v\d+(?:\.\d+)+", tag):
         raise SyncError("Invalid stable release tag")
     repository = api.check_repository()
-    target = api.initialize_download_repository(repository)
+    target = api.prepare_source_repository(repository, metadata.get("sourceCommit"))
     tag_path = "/releases/tags/" + quote(tag, safe="")
     try:
         release = api.request("GET", tag_path)
@@ -198,10 +183,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repository", default=os.environ.get("GITEE_REPOSITORY", ""))
     parser.add_argument("--check", action="store_true")
+    parser.add_argument("--source-commit")
     parser.add_argument("--release-json", type=Path)
     parser.add_argument("--apk-dir", type=Path)
     args = parser.parse_args()
     api = GiteeApi(args.repository, os.environ.get("GITEE_TOKEN", ""))
+    if args.source_commit:
+        api.prepare_source_repository(api.check_repository(), args.source_commit)
+        print(f"Gitee main source verified: {args.source_commit}")
+        return
     if args.check:
         api.check_repository()
         print(f"Gitee download repository verified: {args.repository}")

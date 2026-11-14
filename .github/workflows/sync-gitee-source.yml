@@ -1,0 +1,28 @@
+name: Sync source to Gitee
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gitee-source-sync
+  cancel-in-progress: false
+
+jobs:
+  sync-source:
+    runs-on: ubuntu-latest
+    env:
+      GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+      GITEE_REPOSITORY: ${{ vars.GITEE_REPOSITORY }}
+    steps:
+      - name: Checkout complete source history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Synchronize main to Gitee
+        run: bash scripts/sync-gitee-source.sh

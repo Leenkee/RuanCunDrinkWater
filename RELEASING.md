@@ -1,13 +1,13 @@
 # 手动发布
 
-GitHub 保存应用源码并运行签名构建；Gitee 的 [下载仓库](https://gitee.com/young-patronum/ruan-cun-drink-water)仅保存下载说明和发行版 APK，不同步应用源码、分支或源码标签。应用内手动和自动检查更新均读取 Gitee 的正式发行版，下载按钮使用其实际 APK 附件地址。
+GitHub 作为开发主仓库并运行签名构建；[Gitee 仓库](https://gitee.com/young-patronum/ruan-cun-drink-water)同步 GitHub main 的完整源码与提交历史，并接收发行版 APK。应用内手动和自动检查更新均读取 Gitee 的正式发行版，下载按钮使用其实际 APK 附件地址。
 
 首次使用前，在 GitHub 仓库的 Actions 设置中配置：
 
 - Repository variable `GITEE_REPOSITORY`：`young-patronum/ruan-cun-drink-water`。
 - Repository secret `GITEE_TOKEN`：具有该仓库发布权限、勾选 `projects` 权限的 Gitee 私人令牌。令牌仅在 Actions 中使用，不会写入 APK。
 
-Gitee 仓库必须公开。同步脚本会为尚未初始化的空仓库创建一份下载说明 README，发行版标签指向 Gitee 自身的 README 分支，不使用 GitHub 源码提交。
+Gitee 仓库必须公开。每次推送 GitHub main 时自动同步至 Gitee main，并将 Gitee 默认分支设为 main。同步使用普通快进推送；若有人在 Gitee main 单独提交导致分叉，会报错而不会强制覆盖。发布时先确保源码已同步，新发行版标签指向 GitHub 对应版本的源码提交。
 
 发布工作流只在手动触发时运行。推送到 `main` 或推送标签均不会自动触发该工作流，每次运行发布脚本只触发一次 Actions。
 
@@ -50,7 +50,7 @@ gh workflow run sync-gitee-release.yml \
   -f tag=v1.3.26
 ```
 
-`tag=latest` 同步 GitHub 最新正式版本。该流程只下载现有 APK、复制发行说明、上传到 Gitee 发行版，不推送源码。重复运行会校验同名附件；若文件一致则跳过上传，若不同则报错而不覆盖。
+`tag=latest` 同步 GitHub 最新正式版本。该流程同步 GitHub main 源码，再下载现有 APK、复制发行说明、上传到 Gitee 发行版。重复运行会校验同名附件；若文件一致则跳过上传，若不同则报错而不覆盖。
 
 本地编译默认使用上述 Gitee 仓库，可通过 `-PGITEE_REPOSITORY=owner/repository` 或同名环境变量覆盖。已有旧版应用需要安装切换后的新版本，才能使用 Gitee 检查更新和下载；升级后会忽略之前缓存的 GitHub 下载链接。
 
