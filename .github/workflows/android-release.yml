@@ -41,11 +41,14 @@ jobs:
         env:
           REQUESTED_VERSION: ${{ inputs.release_version }}
           GH_TOKEN: ${{ github.token }}
+          GITEE_REPOSITORY: ${{ vars.GITEE_REPOSITORY }}
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
         run: |
           set -euo pipefail
           VERSION_NAME=$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' app/build.gradle.kts)
           test -n "$REQUESTED_VERSION"
           test "$REQUESTED_VERSION" = "$VERSION_NAME"
+          python3 scripts/sync-gitee-release.py --check
           TAG="v$VERSION_NAME"
           if git show-ref --verify --quiet "refs/tags/$TAG"; then
             test "$(git rev-list -n 1 "$TAG")" = "$GITHUB_SHA"
@@ -77,10 +80,11 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          GITEE_REPOSITORY: ${{ vars.GITEE_REPOSITORY }}
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon testDebugUnitTest lintRelease assembleRelease \
-            -PGITHUB_REPOSITORY="$GITHUB_REPOSITORY"
+          python3 -m unittest discover -s scripts/tests -v
+          ./gradlew --no-daemon testDebugUnitTest lintRelease assembleRelease
 
       - name: Prepare APK
         id: apk
@@ -110,3 +114,12 @@ jobs:
             --target "$GITHUB_SHA" \
             --title "软村饮水 v$VERSION_NAME" \
             --generate-notes
+
+  sync-gitee-apk:
+    needs: build-release
+    if: inputs.publish_release
+    uses: ./.github/workflows/sync-gitee-release.yml
+    with:
+      tag: v${{ inputs.release_version }}
+    secrets:
+      GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}

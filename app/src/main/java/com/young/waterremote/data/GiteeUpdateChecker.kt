@@ -5,6 +5,7 @@ import com.google.gson.JsonParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.IOException
@@ -16,7 +17,7 @@ data class AvailableRelease(
     val releaseUrl: String
 )
 
-class GitHubUpdateChecker(
+class GiteeUpdateChecker(
     private val client: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(12, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
@@ -24,11 +25,8 @@ class GitHubUpdateChecker(
 ) {
     suspend fun fetchLatestRelease(repository: String): AvailableRelease =
         withContext(Dispatchers.IO) {
-            val parts = repository.split('/').filter { it.isNotBlank() }
-            if (parts.size != 2) {
-                throw RemoteApiException("更新服务尚未配置")
-            }
-            val url = GITHUB_API.toHttpUrl().newBuilder()
+            val parts = repositoryParts(repository)
+            val url = GITEE_API.toHttpUrl().newBuilder()
                 .addPathSegment("repos")
                 .addPathSegment(parts[0])
                 .addPathSegment(parts[1])
@@ -37,8 +35,7 @@ class GitHubUpdateChecker(
                 .build()
             val request = Request.Builder()
                 .url(url)
-                .header("Accept", "application/vnd.github+json")
-                .header("X-GitHub-Api-Version", "2022-11-28")
+                .header("Accept", "application/json")
                 .header("User-Agent", "RuanCunDrink-Android")
                 .build()
 
@@ -53,34 +50,51 @@ class GitHubUpdateChecker(
                         }
                         throw RemoteApiException(message)
                     }
-                    parseRelease(body)
+                    parseRelease(body, repository)
                 }
             } catch (error: RemoteApiException) {
                 throw error
             } catch (error: IOException) {
-                throw RemoteApiException("无法连接 GitHub，请检查网络", error)
+                throw RemoteApiException("无法连接 Gitee，请检查网络", error)
             }
         }
 
-    internal fun parseRelease(body: String): AvailableRelease {
+    internal fun parseRelease(body: String, repository: String): AvailableRelease {
         val root = runCatching { JsonParser.parseString(body).asJsonObject }
-            .getOrElse { throw RemoteApiException("GitHub 返回了无法识别的数据", it) }
-        val versionName = root.stringValue("tag_name")
-            ?.removePrefix("v")
-            ?.removePrefix("V")
-            ?.takeIf { it.isNotBlank() }
+            .getOrElse { throw RemoteApiException("Gitee 返回了无法识别的数据", it) }
+        if (root.stringValue("prerelease")?.equals("true", ignoreCase = true) == true) {
+            throw RemoteApiException("尚未发布可用的正式版本")
+        }
+        val tagName = root.stringValue("tag_name")?.takeIf { it.isNotBlank() }
             ?: throw RemoteApiException("最新版本没有版本号")
-        val releaseUrl = root.stringValue("html_url")
-            ?: throw RemoteApiException("最新版本没有发布页面")
-        val downloadUrl = root.getAsJsonArray("assets")
+        val versionName = tagName.removePrefix("v").removePrefix("V")
+            .takeIf { it.isNotBlank() } ?: throw RemoteApiException("最新版本没有版本号")
+        val parts = repositoryParts(repository)
+        val releaseUrl = "https://gitee.com".toHttpUrl().newBuilder()
+            .addPathSegment(parts[0])
+            .addPathSegment(parts[1])
+            .addPathSegment("releases")
+            .addPathSegment("tag")
+            .addPathSegment(tagName)
+            .build().toString()
+        val downloadUrl = root.get("assets")?.takeIf { it.isJsonArray }?.asJsonArray
             ?.mapNotNull { element -> element.takeIf { it.isJsonObject }?.asJsonObject }
             ?.firstOrNull { asset ->
-                asset.stringValue("name")?.endsWith(".apk", ignoreCase = true) == true
+                asset.stringValue("name")?.endsWith(".apk", ignoreCase = true) == true &&
+                    asset.stringValue("browser_download_url")?.let(::isGiteeDownloadUrl) == true
             }
             ?.stringValue("browser_download_url")
-            ?: throw RemoteApiException("最新版本没有可下载的 APK")
+            ?: throw RemoteApiException("最新版本尚未同步可下载的 Gitee APK")
 
         return AvailableRelease(versionName, downloadUrl, releaseUrl)
+    }
+
+    private fun repositoryParts(repository: String): List<String> {
+        val parts = repository.trim().split('/')
+        if (parts.size != 2 || parts.any { it.isBlank() || it == "." || it == ".." }) {
+            throw RemoteApiException("更新服务尚未配置")
+        }
+        return parts
     }
 
     private fun JsonObject.stringValue(name: String): String? {
@@ -90,8 +104,13 @@ class GitHubUpdateChecker(
     }
 
     private companion object {
-        const val GITHUB_API = "https://api.github.com"
+        const val GITEE_API = "https://gitee.com/api/v5"
     }
+}
+
+internal fun isGiteeDownloadUrl(value: String): Boolean {
+    val url = value.toHttpUrlOrNull() ?: return false
+    return url.isHttps && url.host == "gitee.com" && url.encodedPath != "/"
 }
 
 internal object VersionComparator {

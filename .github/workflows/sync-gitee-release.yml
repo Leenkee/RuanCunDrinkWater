@@ -1,0 +1,57 @@
+name: Sync APK to Gitee
+run-name: Sync ${{ inputs.tag }} APK to Gitee
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "已发布的 GitHub 版本标签（latest 表示最新正式版）"
+        type: string
+        default: latest
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        required: true
+    secrets:
+      GITEE_TOKEN:
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gitee-apk-sync
+  cancel-in-progress: false
+
+jobs:
+  sync-apk:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+      GITEE_REPOSITORY: ${{ vars.GITEE_REPOSITORY }}
+      RELEASE_TAG: ${{ inputs.tag }}
+    steps:
+      - name: Checkout synchronization script
+        uses: actions/checkout@v4
+
+      - name: Validate Gitee download repository
+        run: python3 scripts/sync-gitee-release.py --check
+
+      - name: Download published GitHub APK
+        run: |
+          set -euo pipefail
+          if [[ "$RELEASE_TAG" == "latest" ]]; then
+            RELEASE_TAG=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName)
+          fi
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --json tagName,name,body,isDraft,isPrerelease,assets > "$RUNNER_TEMP/github-release.json"
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern '*.apk' --dir "$RUNNER_TEMP/gitee-apks"
+
+      - name: Upload and verify Gitee APK
+        run: |
+          python3 scripts/sync-gitee-release.py \
+            --release-json "$RUNNER_TEMP/github-release.json" \
+            --apk-dir "$RUNNER_TEMP/gitee-apks"

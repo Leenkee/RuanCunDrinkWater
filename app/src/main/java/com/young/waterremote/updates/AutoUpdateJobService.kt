@@ -3,7 +3,7 @@ package com.young.waterremote.updates
 import android.app.job.JobParameters
 import android.app.job.JobService
 import com.young.waterremote.BuildConfig
-import com.young.waterremote.data.GitHubUpdateChecker
+import com.young.waterremote.data.GiteeUpdateChecker
 import com.young.waterremote.data.VersionComparator
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -26,7 +26,7 @@ class AutoUpdateJobService : JobService() {
         activeParams = params
         checkJob = scope.launch {
             try {
-                val release = GitHubUpdateChecker().fetchLatestRelease(BuildConfig.GITHUB_REPOSITORY)
+                val release = GiteeUpdateChecker().fetchLatestRelease(BuildConfig.GITEE_REPOSITORY)
                 ensureActive()
                 if (VersionComparator.isNewer(release.versionName, BuildConfig.VERSION_NAME)) {
                     store.saveRelease(generation, release)
