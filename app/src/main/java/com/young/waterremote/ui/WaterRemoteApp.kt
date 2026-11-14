@@ -11,11 +11,13 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -1284,28 +1286,27 @@ private fun ControlScreen(
     onRequestMixedWater: () -> Unit,
     onRequestWater: (WaterType) -> Unit
 ) {
-    LazyColumn(
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
-        contentPadding = PaddingValues(
-            start = 18.dp,
-            top = contentPadding.calculateTopPadding() + 12.dp,
-            end = 18.dp,
-            bottom = contentPadding.calculateBottomPadding() + 24.dp
-        ),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+            .background(MaterialTheme.colorScheme.background)
+            .padding(contentPadding)
     ) {
-        item {
+        val compact = maxHeight < 600.dp
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 18.dp, vertical = if (compact) 8.dp else 12.dp),
+            verticalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 16.dp)
+        ) {
             BalanceCard(
                 balance = state.session?.balance,
                 isRefreshing = state.isRefreshingBalance,
+                compact = compact,
                 onRefresh = onRefreshBalance
             )
-        }
-        item {
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().weight(1f),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 WaterControlCard(
@@ -1314,6 +1315,7 @@ private fun ControlScreen(
                     bound = state.bindings.hasHot,
                     loading = state.sendingWater == WaterType.HOT,
                     enabled = state.sendingWater == null && !state.isSendingTemporaryWater,
+                    compact = compact,
                     onClick = { onRequestWater(WaterType.HOT) }
                 )
                 WaterControlCard(
@@ -1322,11 +1324,10 @@ private fun ControlScreen(
                     bound = state.bindings.hasCold,
                     loading = state.sendingWater == WaterType.COLD,
                     enabled = state.sendingWater == null && !state.isSendingTemporaryWater,
+                    compact = compact,
                     onClick = { onRequestWater(WaterType.COLD) }
                 )
             }
-        }
-        item {
             FilledTonalButton(
                 onClick = onRequestMixedWater,
                 enabled = state.sendingWater == null && !state.isSendingTemporaryWater,
@@ -1334,7 +1335,7 @@ private fun ControlScreen(
                 shape = RoundedCornerShape(18.dp)
             ) {
                 Column(
-                    modifier = Modifier.padding(vertical = 8.dp),
+                    modifier = Modifier.padding(vertical = if (compact) 0.dp else 8.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
@@ -1349,14 +1350,12 @@ private fun ControlScreen(
                     )
                 }
             }
-        }
-        item {
             OutlinedButton(
                 onClick = onRequestTemporaryWater,
                 enabled = state.sendingWater == null && !state.isSendingTemporaryWater,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(56.dp),
+                    .height(if (compact) 48.dp else 56.dp),
                 shape = RoundedCornerShape(18.dp)
             ) {
                 if (state.isSendingTemporaryWater) {
@@ -1379,9 +1378,7 @@ private fun ControlScreen(
                     modifier = Modifier.padding(start = 9.dp)
                 )
             }
-        }
-        item {
-            DeviceStatusCard(bindings = state.bindings)
+            DeviceStatusCard(bindings = state.bindings, compact = compact)
         }
     }
 }
@@ -1390,6 +1387,7 @@ private fun ControlScreen(
 private fun BalanceCard(
     balance: String?,
     isRefreshing: Boolean,
+    compact: Boolean,
     onRefresh: () -> Unit
 ) {
     Card(
@@ -1402,10 +1400,10 @@ private fun BalanceCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(22.dp),
+                .padding(if (compact) 12.dp else 22.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(modifier = Modifier.weight(1f)) {
+            if (compact) {
                 Text(
                     text = "余额",
                     color = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -1413,30 +1411,47 @@ private fun BalanceCard(
                 )
                 Text(
                     text = balance?.let { "¥ $it" } ?: "¥ --",
-                    modifier = Modifier.padding(top = 5.dp),
+                    modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
                     color = MaterialTheme.colorScheme.onPrimaryContainer,
-                    style = MaterialTheme.typography.headlineLarge,
-                    fontWeight = FontWeight.Bold
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
-                Text(
-                    text = if (balance == null) "点击查询余额" else "点击可刷新",
-                    modifier = Modifier.padding(top = 4.dp),
-                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.72f),
-                    style = MaterialTheme.typography.bodySmall
-                )
+            } else {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "余额",
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        style = MaterialTheme.typography.labelLarge
+                    )
+                    Text(
+                        text = balance?.let { "¥ $it" } ?: "¥ --",
+                        modifier = Modifier.padding(top = 5.dp),
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        style = MaterialTheme.typography.headlineLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = if (balance == null) "点击查询余额" else "点击可刷新",
+                        modifier = Modifier.padding(top = 4.dp),
+                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.72f),
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
             }
             if (isRefreshing) {
                 CircularProgressIndicator(modifier = Modifier.size(30.dp), strokeWidth = 3.dp)
             } else {
                 Surface(
-                    modifier = Modifier.size(46.dp),
+                    modifier = Modifier.size(if (compact) 36.dp else 46.dp),
                     shape = CircleShape,
                     color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
                 ) {
                     Icon(
                         Icons.Default.Refresh,
                         contentDescription = null,
-                        modifier = Modifier.padding(11.dp),
+                        modifier = Modifier.padding(if (compact) 6.dp else 11.dp),
                         tint = MaterialTheme.colorScheme.primary
                     )
                 }
@@ -1452,12 +1467,13 @@ private fun WaterControlCard(
     bound: Boolean,
     loading: Boolean,
     enabled: Boolean,
+    compact: Boolean,
     onClick: () -> Unit
 ) {
     val accent = if (type == WaterType.HOT) HotRed else ColdBlue
     Card(
         modifier = modifier
-            .height(190.dp)
+            .fillMaxHeight()
             .clickable(enabled = enabled, onClick = onClick),
         shape = RoundedCornerShape(28.dp),
         colors = CardDefaults.cardColors(containerColor = accent.copy(alpha = 0.12f))
@@ -1465,12 +1481,12 @@ private fun WaterControlCard(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(18.dp),
+                .padding(if (compact) 10.dp else 18.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
             Surface(
-                modifier = Modifier.size(64.dp),
+                modifier = Modifier.size(if (compact) 40.dp else 64.dp),
                 shape = CircleShape,
                 color = accent
             ) {
@@ -1487,7 +1503,7 @@ private fun WaterControlCard(
                         Text(
                             text = type.label.take(1),
                             color = Color.White,
-                            fontSize = 25.sp,
+                            fontSize = if (compact) 20.sp else 25.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
@@ -1495,8 +1511,8 @@ private fun WaterControlCard(
             }
             Text(
                 text = type.label,
-                modifier = Modifier.padding(top = 13.dp),
-                style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.padding(top = if (compact) 8.dp else 13.dp),
+                style = if (compact) MaterialTheme.typography.titleMedium else MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
                 color = accent
             )
@@ -1506,17 +1522,24 @@ private fun WaterControlCard(
                     bound -> "点击开启饮水机"
                     else -> "未绑定 · 去绑定"
                 },
-                modifier = Modifier.padding(top = 5.dp),
+                modifier = Modifier.padding(top = if (compact) 4.dp else 5.dp),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodySmall,
-                textAlign = TextAlign.Center
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }
 }
 
 @Composable
-private fun DeviceStatusCard(bindings: DeviceBindings) {
+private fun DeviceStatusCard(bindings: DeviceBindings, compact: Boolean) {
+    val status = when (bindings.count) {
+        0 -> "尚未绑定冷热水设备"
+        1 -> "已绑定 1 个设备，还可继续绑定"
+        else -> "冷热水设备均已就绪"
+    }
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(22.dp),
@@ -1525,7 +1548,7 @@ private fun DeviceStatusCard(bindings: DeviceBindings) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(18.dp),
+                .padding(if (compact) 12.dp else 18.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
@@ -1534,18 +1557,25 @@ private fun DeviceStatusCard(bindings: DeviceBindings) {
                 tint = if (bindings.count == 2) MaterialTheme.colorScheme.primary
                 else MaterialTheme.colorScheme.onSurfaceVariant
             )
-            Column(modifier = Modifier.padding(start = 14.dp)) {
-                Text("设备状态", fontWeight = FontWeight.SemiBold)
+            if (compact) {
                 Text(
-                    text = when (bindings.count) {
-                        0 -> "尚未绑定冷热水设备"
-                        1 -> "已绑定 1 个设备，还可继续绑定"
-                        else -> "冷热水设备均已就绪"
-                    },
-                    modifier = Modifier.padding(top = 3.dp),
+                    text = status,
+                    modifier = Modifier.padding(start = 12.dp),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodyMedium
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
+            } else {
+                Column(modifier = Modifier.padding(start = 14.dp)) {
+                    Text("设备状态", fontWeight = FontWeight.SemiBold)
+                    Text(
+                        text = status,
+                        modifier = Modifier.padding(top = 3.dp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
             }
         }
     }
