@@ -233,6 +233,7 @@ fun WaterRemoteApp(
                 onAccountEntered = viewModel::refreshBalanceSilently,
                 onSaveBindings = viewModel::saveBindings,
                 onSendWater = viewModel::sendWater,
+                onSendMixedWater = viewModel::sendMixedWater,
                 onSendTemporaryWater = viewModel::sendTemporaryWater,
                 onDismissDrinkingProgress = viewModel::dismissDrinkingProgress,
                 onLogout = viewModel::logout,
@@ -529,6 +530,7 @@ private fun MainShell(
     onAccountEntered: () -> Unit,
     onSaveBindings: (String, String) -> Unit,
     onSendWater: (WaterType) -> Unit,
+    onSendMixedWater: () -> Unit,
     onSendTemporaryWater: (String) -> Unit,
     onDismissDrinkingProgress: (Long) -> Unit,
     onLogout: () -> Unit,
@@ -539,6 +541,7 @@ private fun MainShell(
     var sectionName by rememberSaveable { mutableStateOf(MainSection.CONTROL.name) }
     val section = MainSection.valueOf(sectionName)
     var pendingWater by remember { mutableStateOf<WaterType?>(null) }
+    var pendingMixedWater by remember { mutableStateOf(false) }
     var pendingTemporaryDeviceKey by rememberSaveable { mutableStateOf<String?>(null) }
     val drinkingProgress = state.drinkingProgress
     LaunchedEffect(drinkingProgress?.requestId) {
@@ -586,6 +589,7 @@ private fun MainShell(
             WidgetAction.HOT, WidgetAction.COLD -> {
                 sectionName = MainSection.CONTROL.name
                 pendingTemporaryDeviceKey = null
+                pendingMixedWater = false
                 val type = if (request.action == WidgetAction.HOT) {
                     WaterType.HOT
                 } else {
@@ -609,6 +613,7 @@ private fun MainShell(
             WidgetAction.TEMPORARY_SCAN -> {
                 sectionName = MainSection.CONTROL.name
                 pendingWater = null
+                pendingMixedWater = false
                 scanTemporaryDevice()
             }
         }
@@ -667,6 +672,16 @@ private fun MainShell(
                 contentPadding = contentPadding,
                 onRefreshBalance = onRefreshBalance,
                 onRequestTemporaryWater = { scanTemporaryDevice() },
+                onRequestMixedWater = {
+                    if (!state.bindings.hasCold || !state.bindings.hasHot) {
+                        sectionName = MainSection.DEVICES.name
+                        Toast.makeText(context, "混合接水需要先绑定冷水和热水设备", Toast.LENGTH_SHORT).show()
+                    } else if (state.isWaterConfirmationEnabled) {
+                        pendingMixedWater = true
+                    } else {
+                        onSendMixedWater()
+                    }
+                },
                 onRequestWater = { type ->
                     val isBound = when (type) {
                         WaterType.HOT -> state.bindings.hasHot
@@ -715,6 +730,25 @@ private fun MainShell(
             }
         )
     }
+
+    if (pendingMixedWater) {
+        AlertDialog(
+            onDismissRequest = { pendingMixedWater = false },
+            title = { Text("启动混合接水？") },
+            text = { Text("先接冷水，确认冷水结束后会自动发送热水指令，热水结束后完成本次接水。") },
+            confirmButton = {
+                Button(onClick = {
+                    pendingMixedWater = false
+                    onSendMixedWater()
+                }) {
+                    Text("确认接水")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingMixedWater = false }) { Text("取消") }
+            }
+        )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -740,14 +774,24 @@ private fun DrinkingProgressScreen(
         DrinkingPhase.FAILED -> "接水指令发送失败"
         DrinkingPhase.UNKNOWN -> "暂时无法确认接水状态"
     }
-    val description = when (progress.phase) {
-        DrinkingPhase.SENDING -> "正在联系饮水机，请稍候"
-        DrinkingPhase.WAITING_FOR_DEVICE -> "接水请求已提交，正在等待指令下发，请稍候"
-        DrinkingPhase.IN_PROGRESS -> "按动饮水机接水按钮可进行接水"
-        DrinkingPhase.SETTLING -> "正在更新余额，计算本次消费"
-        DrinkingPhase.FINISHED -> "$secondsUntilReturn 秒后自动返回主菜单"
-        DrinkingPhase.FAILED, DrinkingPhase.UNKNOWN ->
-            "${progress.detail.orEmpty()}\n$secondsUntilReturn 秒后自动返回主菜单"
+    val description = when {
+        progress.isMixed && progress.phase == DrinkingPhase.SENDING ->
+            if (progress.waterType == WaterType.COLD) "正在发送冷水指令，请稍候"
+            else "冷水已结束，正在自动发送热水指令，请稍候"
+        progress.isMixed && progress.phase == DrinkingPhase.WAITING_FOR_DEVICE ->
+            "${progress.waterType?.label}请求已提交，正在等待指令下发，请稍候"
+        progress.isMixed && progress.phase == DrinkingPhase.IN_PROGRESS ->
+            if (progress.waterType == WaterType.COLD) "按动冷水接水按钮可进行接水，冷水结束后将自动发送热水指令"
+            else "冷水已结束，按动热水接水按钮可进行接水"
+        else -> when (progress.phase) {
+            DrinkingPhase.SENDING -> "正在联系饮水机，请稍候"
+            DrinkingPhase.WAITING_FOR_DEVICE -> "接水请求已提交，正在等待指令下发，请稍候"
+            DrinkingPhase.IN_PROGRESS -> "按动饮水机接水按钮可进行接水"
+            DrinkingPhase.SETTLING -> "正在更新余额，计算本次消费"
+            DrinkingPhase.FINISHED -> "$secondsUntilReturn 秒后自动返回主菜单"
+            DrinkingPhase.FAILED, DrinkingPhase.UNKNOWN ->
+                "${progress.detail.orEmpty()}\n$secondsUntilReturn 秒后自动返回主菜单"
+        }
     }
 
     Scaffold(
@@ -810,7 +854,13 @@ private fun DrinkingProgressScreen(
                             }
                         }
                         Text(
-                            text = progress.waterType?.let { "${it.label}接水" } ?: "临时设备接水",
+                            text = if (progress.isMixed) {
+                                when (progress.phase) {
+                                    DrinkingPhase.SETTLING, DrinkingPhase.FINISHED -> "混合接水"
+                                    else -> if (progress.waterType == WaterType.COLD) "混合接水 · 冷水（1/2）"
+                                    else "混合接水 · 热水（2/2）"
+                                }
+                            } else progress.waterType?.let { "${it.label}接水" } ?: "临时设备接水",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.labelLarge
                         )
@@ -1061,6 +1111,13 @@ private fun SettingsScreen(
                     item {
                         HelpCard(
                             icon = Icons.Default.PlayArrow,
+                            title = "混合接水",
+                            description = "绑定冷热水设备后，点击“混合接水”先接冷水。确认冷水结束后会自动发送热水指令，热水结束后统一显示本次消费。若冷水指令失败或无法确认结束，将停止自动衔接。"
+                        )
+                    }
+                    item {
+                        HelpCard(
+                            icon = Icons.Default.PlayArrow,
                             title = "查看接水状态",
                             description = "发送接水指令后进入接水状态页面，接水期间无法手动返回。接水完成后显示“接水结束”和本次消费，倒计时 3 秒自动返回主菜单。发生异常时也会显示原因并倒计时返回。倒计时期间可点击“返回主页面”提前返回。"
                         )
@@ -1224,6 +1281,7 @@ private fun ControlScreen(
     contentPadding: PaddingValues,
     onRefreshBalance: () -> Unit,
     onRequestTemporaryWater: () -> Unit,
+    onRequestMixedWater: () -> Unit,
     onRequestWater: (WaterType) -> Unit
 ) {
     LazyColumn(
@@ -1266,6 +1324,30 @@ private fun ControlScreen(
                     enabled = state.sendingWater == null && !state.isSendingTemporaryWater,
                     onClick = { onRequestWater(WaterType.COLD) }
                 )
+            }
+        }
+        item {
+            FilledTonalButton(
+                onClick = onRequestMixedWater,
+                enabled = state.sendingWater == null && !state.isSendingTemporaryWater,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(18.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(vertical = 8.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text("混合接水", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text(
+                        text = if (state.bindings.hasCold && state.bindings.hasHot) {
+                            "先冷水，结束后自动接热水"
+                        } else {
+                            "需绑定冷水和热水设备 · 去绑定"
+                        },
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
             }
         }
         item {

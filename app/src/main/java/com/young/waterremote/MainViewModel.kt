@@ -56,7 +56,8 @@ data class DrinkingProgress(
     val consumptionAmount: String? = null,
     val detail: String? = null,
     val returnCountdown: DrinkingReturnCountdown? = null,
-    val secondsUntilReturn: Int = 3
+    val secondsUntilReturn: Int = 3,
+    val isMixed: Boolean = false
 )
 
 data class AppUiState(
@@ -90,7 +91,7 @@ class MainViewModel(
     private val messageIds = AtomicLong(0)
     private val drinkingRequestIds = AtomicLong(0)
     private var drinkingReturnJob: Job? = null
-    private val drinkingStatusJobs = mutableMapOf<String, Job>()
+    private var drinkingJob: Job? = null
     private val _state = MutableStateFlow(
         AppUiState(
             session = store.loadSession(),
@@ -319,11 +320,19 @@ class MainViewModel(
             return
         }
 
-        sendWaterCommand(
-            deviceKey = deviceKey,
-            sendingType = type,
-            submissionMessage = "${type.label}接水请求已提交"
-        )
+        sendWaterCommands(listOf(DrinkingStep(deviceKey, type)))
+    }
+
+    fun sendMixedWater() {
+        val bindings = _state.value.bindings
+        if (!bindings.hasCold || !bindings.hasHot) {
+            showMessage("混合接水需要先绑定冷水和热水设备")
+            return
+        }
+        sendWaterCommands(listOf(
+            DrinkingStep(bindings.coldKey, WaterType.COLD),
+            DrinkingStep(bindings.hotKey, WaterType.HOT)
+        ))
     }
 
     fun sendTemporaryWater(deviceKey: String) {
@@ -333,39 +342,41 @@ class MainViewModel(
             return
         }
 
-        sendWaterCommand(
-            deviceKey = normalized,
-            sendingType = null,
-            submissionMessage = "临时设备接水请求已提交"
-        )
+        sendWaterCommands(listOf(DrinkingStep(normalized, null)))
     }
 
-    private fun sendWaterCommand(
-        deviceKey: String,
-        sendingType: WaterType?,
-        submissionMessage: String
-    ) {
+    private fun sendWaterCommands(steps: List<DrinkingStep>) {
         val current = _state.value
         val session = current.session ?: run {
             showMessage("请先登录")
             return
         }
-        if (current.sendingWater != null || current.isSendingTemporaryWater) return
+        if (current.drinkingProgress != null || drinkingJob?.isActive == true) return
 
         val requestId = drinkingRequestIds.incrementAndGet()
+        val firstStep = steps.first()
+        val isMixed = steps.size > 1
         DiagnosticLogs.record("water.requested", mapOf(
             "drinkingRequestId" to requestId,
-            "waterType" to (sendingType?.name ?: "TEMPORARY"),
-            "deviceFingerprint" to DiagnosticLogs.deviceFingerprint(deviceKey)
+            "waterType" to (if (isMixed) "MIXED" else firstStep.waterType?.name ?: "TEMPORARY"),
+            "deviceFingerprint" to DiagnosticLogs.deviceFingerprint(firstStep.deviceKey)
         ))
         _state.update {
             it.copy(
-                sendingWater = sendingType,
-                isSendingTemporaryWater = sendingType == null,
-                drinkingProgress = DrinkingProgress(requestId, sendingType)
+                sendingWater = firstStep.waterType,
+                isSendingTemporaryWater = firstStep.waterType == null,
+                drinkingProgress = DrinkingProgress(requestId, firstStep.waterType, isMixed = isMixed)
             )
         }
-        viewModelScope.launch {
+        drinkingJob = viewModelScope.launch {
+            fun ensureCurrentRequest() {
+                if (_state.value.session?.token != session.token ||
+                    _state.value.drinkingProgress?.requestId != requestId
+                ) {
+                    throw CancellationException("Drinking request changed")
+                }
+            }
+
             val balanceBefore = try {
                 api.fetchBalance(session)
             } catch (error: CancellationException) {
@@ -381,48 +392,107 @@ class MainViewModel(
                 store.saveSession(updatedSession)
                 _state.update { it.copy(session = updatedSession) }
             }
-            runCatching { api.sendCommand(session.token, deviceKey) }
-                .onSuccess { receipt ->
-                    if (_state.value.session?.token != session.token) return@onSuccess
-                    _state.update {
-                        it.copy(sendingWater = null, isSendingTemporaryWater = false)
-                    }
-                    val orderNumber = receipt.orderNumber?.takeIf { it.isNotBlank() }
-                    val suffix = orderNumber?.let { "，单号 ${it.takeLast(8)}" }.orEmpty()
-                    showMessage("$submissionMessage$suffix")
-                    if (orderNumber != null) {
+            try {
+                val result = DrinkingSequence.run(
+                    steps = steps,
+                    onSending = { step ->
+                        ensureCurrentRequest()
+                        _state.update {
+                            it.copy(sendingWater = step.waterType, isSendingTemporaryWater = step.waterType == null)
+                        }
+                        updateDrinkingProgress(requestId) {
+                            it.copy(waterType = step.waterType, phase = DrinkingPhase.SENDING, orderNumber = null)
+                        }
+                        DiagnosticLogs.record("water.command_requested", mapOf(
+                            "drinkingRequestId" to requestId,
+                            "waterType" to (step.waterType?.name ?: "TEMPORARY"),
+                            "deviceFingerprint" to DiagnosticLogs.deviceFingerprint(step.deviceKey)
+                        ))
+                    },
+                    onSubmitted = { step, orderNumber ->
+                        ensureCurrentRequest()
+                        _state.update { it.copy(sendingWater = null, isSendingTemporaryWater = false) }
                         updateDrinkingProgress(requestId) {
                             it.copy(phase = DrinkingPhase.WAITING_FOR_DEVICE, orderNumber = orderNumber)
                         }
-                        monitorDrinkingCompletion(
-                            session.copy(balance = balanceBefore), deviceKey, orderNumber, requestId
-                        )
-                    } else {
-                        val detail = "未获取到订单号，无法自动确认接水状态。接水结束后请手动刷新余额。"
-                        updateDrinkingProgress(requestId) {
-                            it.copy(phase = DrinkingPhase.UNKNOWN, detail = detail)
+                        val label = step.waterType?.label ?: "临时设备"
+                        val suffix = orderNumber?.let { "，单号 ${it.takeLast(8)}" }.orEmpty()
+                        showMessage("${label}接水请求已提交$suffix")
+                    },
+                    onStatus = { status ->
+                        ensureCurrentRequest()
+                        val phase = when (status) {
+                            DrinkingStatus.WAITING_FOR_DEVICE -> DrinkingPhase.WAITING_FOR_DEVICE
+                            DrinkingStatus.IN_PROGRESS -> DrinkingPhase.IN_PROGRESS
+                            DrinkingStatus.FINISHED -> DrinkingPhase.SETTLING
                         }
+                        updateDrinkingProgress(requestId) { it.copy(phase = phase) }
+                    },
+                    sendCommand = { step ->
+                        ensureCurrentRequest()
+                        api.sendCommand(session.token, step.deviceKey)
+                    },
+                    fetchStatus = { step, orderNumber ->
+                        ensureCurrentRequest()
+                        api.fetchDrinkingStatus(session.token, step.deviceKey, orderNumber)
                     }
+                )
+                ensureCurrentRequest()
+                if (result == DrinkingSequenceResult.Finished) {
+                    updateDrinkingProgress(requestId) { it.copy(phase = DrinkingPhase.SETTLING) }
+                    val consumptionAmount = refreshBalanceAfterDrinking(session.copy(balance = balanceBefore))
+                    ensureCurrentRequest()
+                    updateDrinkingProgress(requestId) {
+                        it.copy(phase = DrinkingPhase.FINISHED, consumptionAmount = consumptionAmount)
+                    }
+                } else {
+                    val reason = when {
+                        result == DrinkingSequenceResult.MissingOrderNumber ->
+                            "未获取到订单号，无法自动确认接水状态。接水结束后请手动刷新余额。"
+                        result is DrinkingSequenceResult.TimedOut &&
+                            result.lastStatus == DrinkingStatus.WAITING_FOR_DEVICE ->
+                            "等待指令下发超时，尚未确认饮水机可接水，请查看饮水机状态后再操作。"
+                        else ->
+                            "暂时无法确认接水是否结束，请查看饮水机，结束后手动刷新余额。"
+                    }
+                    val detail = reason + mixedWaterStoppedMessage(requestId)
+                    updateDrinkingProgress(requestId) {
+                        it.copy(phase = DrinkingPhase.UNKNOWN, detail = detail)
+                    }
+                    showMessage(detail)
                 }
-                .onFailure { error ->
-                    if (error is CancellationException) throw error
-                    if (_state.value.session?.token != session.token) return@onFailure
-                    _state.update {
-                        it.copy(sendingWater = null, isSendingTemporaryWater = false)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                if (_state.value.session?.token != session.token) return@launch
+                if (!handleInvalidSession(error)) {
+                    val detail = failureMessage(error) + mixedWaterStoppedMessage(requestId)
+                    updateDrinkingProgress(requestId) {
+                        it.copy(phase = DrinkingPhase.FAILED, detail = detail)
                     }
-                    if (!handleInvalidSession(error)) {
-                        updateDrinkingProgress(requestId) {
-                            it.copy(phase = DrinkingPhase.FAILED, detail = failureMessage(error))
-                        }
-                        showFailure(error)
-                    }
+                    showFailure(error)
                 }
+            } finally {
+                if (_state.value.drinkingProgress?.requestId == requestId) {
+                    _state.update { it.copy(sendingWater = null, isSendingTemporaryWater = false) }
+                }
+            }
+        }
+    }
+
+    private fun mixedWaterStoppedMessage(requestId: Long): String {
+        val progress = _state.value.drinkingProgress
+        if (progress?.requestId != requestId || !progress.isMixed) return ""
+        return if (progress.waterType == WaterType.COLD) {
+            " 混合接水已停止，未自动发送热水指令。"
+        } else {
+            " 冷水已结束，请查看热水设备状态，结束后手动刷新余额。"
         }
     }
 
     fun logout() {
-        drinkingStatusJobs.values.toList().forEach { it.cancel() }
-        drinkingStatusJobs.clear()
+        drinkingJob?.cancel()
+        drinkingReturnJob?.cancel()
         store.clearSession()
         _state.update {
             it.copy(
@@ -434,63 +504,6 @@ class MainViewModel(
             )
         }
         showMessage("已退出登录")
-    }
-
-    private fun monitorDrinkingCompletion(
-        session: UserSession,
-        deviceKey: String,
-        orderNumber: String,
-        requestId: Long
-    ) {
-        drinkingStatusJobs.remove(orderNumber)?.cancel()
-        val job = viewModelScope.launch {
-            try {
-                var lastStatus: DrinkingStatus? = null
-                val finished = DrinkingStatusMonitor.awaitCompletion(onStatus = { status ->
-                    lastStatus = status
-                    val phase = when (status) {
-                        DrinkingStatus.WAITING_FOR_DEVICE -> DrinkingPhase.WAITING_FOR_DEVICE
-                        DrinkingStatus.IN_PROGRESS -> DrinkingPhase.IN_PROGRESS
-                        DrinkingStatus.FINISHED -> DrinkingPhase.SETTLING
-                    }
-                    updateDrinkingProgress(requestId) { it.copy(phase = phase) }
-                }) {
-                    if (_state.value.session?.token != session.token) {
-                        throw CancellationException("Session changed")
-                    }
-                    api.fetchDrinkingStatus(
-                        token = session.token,
-                        deviceKey = deviceKey,
-                        orderNumber = orderNumber
-                    )
-                }
-                if (_state.value.session?.token != session.token) return@launch
-                if (finished) {
-                    val consumptionAmount = refreshBalanceAfterDrinking(session)
-                    updateDrinkingProgress(requestId) {
-                        it.copy(phase = DrinkingPhase.FINISHED, consumptionAmount = consumptionAmount)
-                    }
-                } else {
-                    val detail = if (lastStatus == DrinkingStatus.WAITING_FOR_DEVICE) {
-                        "等待指令下发超时，尚未确认饮水机可接水，请查看饮水机状态后再操作。"
-                    } else {
-                        "暂时无法确认接水是否结束，请查看饮水机，结束后手动刷新余额。"
-                    }
-                    updateDrinkingProgress(requestId) {
-                        it.copy(phase = DrinkingPhase.UNKNOWN, detail = detail)
-                    }
-                    showMessage(detail)
-                }
-            } catch (error: SessionInvalidException) {
-                handleInvalidSession(error)
-            }
-        }
-        drinkingStatusJobs[orderNumber] = job
-        job.invokeOnCompletion {
-            if (drinkingStatusJobs[orderNumber] === job) {
-                drinkingStatusJobs.remove(orderNumber)
-            }
-        }
     }
 
     fun dismissDrinkingProgress(requestId: Long) {
@@ -536,6 +549,8 @@ class MainViewModel(
             }
             DiagnosticLogs.record("water.progress", mapOf(
                 "drinkingRequestId" to requestId,
+                "isMixed" to progress.isMixed,
+                "waterType" to progress.waterType?.name,
                 "phase" to progress.phase.name,
                 "orderNumber" to progress.orderNumber,
                 "detail" to progress.detail,
@@ -587,8 +602,8 @@ class MainViewModel(
     private fun handleInvalidSession(error: Throwable): Boolean {
         if (error !is SessionInvalidException) return false
 
-        drinkingStatusJobs.values.toList().forEach { it.cancel() }
-        drinkingStatusJobs.clear()
+        drinkingJob?.cancel()
+        drinkingReturnJob?.cancel()
         store.clearSession()
         _state.update {
             it.copy(
