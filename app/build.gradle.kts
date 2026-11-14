@@ -22,8 +22,8 @@ android {
         applicationId = "com.young.waterremote"
         minSdk = 28
         targetSdk = 35
-        versionCode = 29
-        versionName = "1.3.25"
+        versionCode = 30
+        versionName = "1.3.26"
 
         buildConfigField("String", "GITHUB_REPOSITORY", "\"$githubRepository\"")
 
