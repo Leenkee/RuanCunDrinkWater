@@ -1432,12 +1432,6 @@ private fun BalanceCard(
                         style = MaterialTheme.typography.headlineLarge,
                         fontWeight = FontWeight.Bold
                     )
-                    Text(
-                        text = if (balance == null) "点击查询余额" else "点击可刷新",
-                        modifier = Modifier.padding(top = 4.dp),
-                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.72f),
-                        style = MaterialTheme.typography.bodySmall
-                    )
                 }
             }
             if (isRefreshing) {
@@ -1500,11 +1494,14 @@ private fun WaterControlCard(
                     }
                 } else {
                     Box(contentAlignment = Alignment.Center) {
-                        Text(
-                            text = type.label.take(1),
-                            color = Color.White,
-                            fontSize = if (compact) 20.sp else 25.sp,
-                            fontWeight = FontWeight.Bold
+                        Icon(
+                            painter = painterResource(
+                                if (type == WaterType.HOT) R.drawable.ic_water_hot
+                                else R.drawable.ic_water_room_temperature
+                            ),
+                            contentDescription = if (type == WaterType.HOT) "热水" else "常温水",
+                            modifier = Modifier.size(if (compact) 24.dp else 38.dp),
+                            tint = Color.White
                         )
                     }
                 }
