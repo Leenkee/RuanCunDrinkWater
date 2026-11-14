@@ -29,14 +29,22 @@ def download_sha256(url):
     parsed = urlsplit(url)
     if parsed.scheme != "https" or parsed.netloc != "gitee.com":
         raise SyncError("The APK download must start at https://gitee.com")
-    digest = hashlib.sha256()
-    try:
-        with urlopen(Request(url, headers={"User-Agent": "RuanCunDrink-Release"}), timeout=60) as response:
-            for chunk in iter(lambda: response.read(1024 * 1024), b""):
-                digest.update(chunk)
-    except (HTTPError, URLError, TimeoutError):
-        raise SyncError("Cannot download the public Gitee APK for verification") from None
-    return digest.hexdigest()
+    for attempt in range(3):
+        digest = hashlib.sha256()
+        try:
+            with urlopen(Request(url, headers={"User-Agent": "RuanCunDrink-Release"}), timeout=180) as response:
+                for chunk in iter(lambda: response.read(1024 * 1024), b""):
+                    digest.update(chunk)
+            return digest.hexdigest()
+        except HTTPError as error:
+            if error.code < 500:
+                raise SyncError(f"Public Gitee APK download returned HTTP {error.code}") from None
+        except (URLError, TimeoutError):
+            pass
+        if attempt < 2:
+            print("Retrying the public Gitee APK download", flush=True)
+            time.sleep(2)
+    raise SyncError("Cannot download the public Gitee APK for verification")
 
 
 class GiteeApi:

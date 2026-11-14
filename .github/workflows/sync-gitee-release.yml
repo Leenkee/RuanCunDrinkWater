@@ -13,6 +13,9 @@ on:
       tag:
         type: string
         required: true
+      artifact_name:
+        type: string
+        default: ""
     secrets:
       GITEE_TOKEN:
         required: true
@@ -42,6 +45,7 @@ jobs:
         run: python3 scripts/sync-gitee-release.py --check
 
       - name: Download published GitHub APK
+        if: inputs.artifact_name == ''
         run: |
           set -euo pipefail
           if [[ "$RELEASE_TAG" == "latest" ]]; then
@@ -59,6 +63,35 @@ jobs:
               ['git', 'rev-parse', 'refs/tags/' + release['tagName'] + '^{commit}'], text=True
           ).strip()
           path.write_text(json.dumps(release, ensure_ascii=False))
+          PY
+
+      - name: Download APK from the current build
+        if: inputs.artifact_name != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: ${{ runner.temp }}/gitee-apks
+
+      - name: Prepare current build metadata
+        if: inputs.artifact_name != ''
+        run: |
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib
+          directory = pathlib.Path(os.environ['RUNNER_TEMP'])
+          apks = list((directory / 'gitee-apks').glob('*.apk'))
+          if len(apks) != 1:
+              raise SystemExit('Expected one signed APK build artifact')
+          apk = apks[0]
+          release = {
+              'tagName': os.environ['RELEASE_TAG'],
+              'name': '软村饮水 ' + os.environ['RELEASE_TAG'],
+              'body': '软村饮水 Android 签名安装包。源码与 APK 由 GitHub Actions 同步至 Gitee。',
+              'sourceCommit': os.environ['GITHUB_SHA'],
+              'isDraft': False, 'isPrerelease': False,
+              'assets': [{'name': apk.name, 'size': apk.stat().st_size,
+                          'digest': 'sha256:' + hashlib.sha256(apk.read_bytes()).hexdigest()}]
+          }
+          (directory / 'github-release.json').write_text(json.dumps(release, ensure_ascii=False))
           PY
 
       - name: Synchronize source to Gitee main

@@ -30,6 +30,8 @@ permissions:
 jobs:
   build-release:
     runs-on: ubuntu-latest
+    outputs:
+      apk_name: ${{ steps.apk.outputs.name }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -121,5 +123,6 @@ jobs:
     uses: ./.github/workflows/sync-gitee-release.yml
     with:
       tag: v${{ inputs.release_version }}
+      artifact_name: ${{ needs.build-release.outputs.apk_name }}
     secrets:
       GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}

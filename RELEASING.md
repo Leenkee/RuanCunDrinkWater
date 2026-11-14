@@ -23,7 +23,7 @@ Gitee 仓库必须公开。每次推送 GitHub main 时自动同步至 Gitee mai
 
 1. 确认 `app/build.gradle.kts` 的 `versionName`、`versionCode` 已递增，并推送代码。
 2. 本地 `main` 没有未提交修改，并且已经与 `origin/main` 同步。
-3. 运行上述脚本。同步脚本测试、Android 单元测试、lint、签名构建通过后，工作流会为该提交创建 GitHub 标签及 Release，附加签名 APK，再将同一个 APK 上传到 Gitee，并核对公开下载文件的 SHA-256。
+3. 运行上述脚本。同步脚本测试、Android 单元测试、lint、签名构建通过后，工作流会为该提交创建 GitHub 标签及 Release，附加签名 APK，再将同一次构建的签名 APK 上传到 Gitee，并核对公开下载文件的 SHA-256。发布流程直接读取 Actions 构建产物，不依赖后续 GitHub 发行页是否仍然存在。
 
 只想获取安装包时，不勾选 `publish_release`；构建结束后下载该次运行的 Artifacts。
 

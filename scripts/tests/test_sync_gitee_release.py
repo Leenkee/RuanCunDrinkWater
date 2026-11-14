@@ -189,6 +189,12 @@ class GiteeReleaseSyncTest(unittest.TestCase):
             with self.assertRaises(sync.SyncError):
                 sync.download_sha256(url)
 
+    def test_public_download_retries_transient_connection_failures(self):
+        payload = self.apk.read_bytes()
+        with patch.object(sync, "urlopen", side_effect=[TimeoutError(), io.BytesIO(payload)]):
+            with patch.object(sync.time, "sleep"):
+                self.assertEqual(self.digest, sync.download_sha256("https://gitee.com/owner/repo/app.apk"))
+
 
 if __name__ == "__main__":
     unittest.main()

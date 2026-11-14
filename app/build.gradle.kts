@@ -22,8 +22,8 @@ android {
         applicationId = "com.young.waterremote"
         minSdk = 28
         targetSdk = 35
-        versionCode = 31
-        versionName = "1.3.27"
+        versionCode = 32
+        versionName = "1.3.28"
 
         buildConfigField("String", "GITEE_REPOSITORY", "\"$giteeRepository\"")
 
