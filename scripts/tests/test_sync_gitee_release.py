@@ -1,5 +1,3 @@
-from email.parser import BytesParser
-from email.policy import default
 import importlib.util
 import io
 from pathlib import Path
@@ -171,18 +169,36 @@ class GiteeReleaseSyncTest(unittest.TestCase):
                 self.assertEqual({"public": True}, api.request("GET"))
         self.assertEqual(2, opened.call_count)
 
-    def test_upload_uses_the_documented_multipart_file_field(self):
+    def test_upload_streams_multipart_without_exposing_the_token_in_arguments(self):
         api = sync.GiteeApi("owner/downloads", "test-token")
-        with patch.object(sync, "urlopen", return_value=io.BytesIO(b'{"id":1}')) as opened:
-            api.request("POST", "/releases/42/attach_files", upload=self.apk)
-        request = opened.call_args.args[0]
-        message = BytesParser(policy=default).parsebytes(
-            ("Content-Type: " + request.get_header("Content-type") + "\r\n\r\n").encode() + request.data
-        )
-        parts = {part.get_param("name", header="Content-Disposition"): part for part in message.iter_parts()}
-        self.assertEqual({"access_token", "file"}, set(parts))
-        self.assertEqual("app.apk", parts["file"].get_filename())
-        self.assertEqual(self.apk.read_bytes(), parts["file"].get_payload(decode=True))
+
+        def curl(command, **kwargs):
+            response_path = Path(command[command.index("--output") + 1])
+            response_path.write_text('{"id":1}')
+            self.assertNotIn("test-token", " ".join(command))
+            self.assertIn('access_token=test-token', kwargs['input'])
+            self.assertIn('file=@' + str(self.apk), kwargs['input'])
+            return sync.subprocess.CompletedProcess(command, 0, "201", "")
+
+        with patch.object(sync.subprocess, "run", side_effect=curl):
+            self.assertEqual({"id": 1}, api.request("POST", "/releases/42/attach_files", upload=self.apk))
+
+    def test_timed_out_upload_is_not_duplicated_if_attachment_already_exists(self):
+        api = FakeApi(existing=True)
+        original_request = api.request
+        uploads = []
+
+        def request(method, path="", **kwargs):
+            if method == 'POST' and path.endswith('/attach_files'):
+                uploads.append(path)
+                api.attached = True
+                raise sync.SyncError('Response timed out')
+            return original_request(method, path, **kwargs)
+
+        api.request = request
+        with patch.object(sync, "download_sha256", return_value=self.digest):
+            sync.sync_release(api, self.metadata, self.apk, self.digest)
+        self.assertEqual(1, len(uploads))
 
     def test_download_requires_a_public_gitee_url(self):
         for url in ["http://gitee.com/app.apk", "https://example.com/app.apk", "https://gitee.com.example.com/app.apk"]:

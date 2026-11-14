@@ -8,6 +8,14 @@ on:
         description: "已发布的 GitHub 版本标签（latest 表示最新正式版）"
         type: string
         default: latest
+      artifact_name:
+        description: "可选：已构建签名 APK 的 Actions artifact 名称"
+        type: string
+        default: ""
+      artifact_run_id:
+        description: "可选：原构建运行 ID，单独重试同步时无需重新编译"
+        type: string
+        default: ""
   workflow_call:
     inputs:
       tag:
@@ -16,12 +24,16 @@ on:
       artifact_name:
         type: string
         default: ""
+      artifact_run_id:
+        type: string
+        default: ""
     secrets:
       GITEE_TOKEN:
         required: true
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: gitee-release-sync
@@ -35,6 +47,7 @@ jobs:
       GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
       GITEE_REPOSITORY: ${{ vars.GITEE_REPOSITORY }}
       RELEASE_TAG: ${{ inputs.tag }}
+      ARTIFACT_RUN_ID: ${{ inputs.artifact_run_id }}
     steps:
       - name: Checkout synchronization script
         uses: actions/checkout@v4
@@ -71,22 +84,36 @@ jobs:
         with:
           name: ${{ inputs.artifact_name }}
           path: ${{ runner.temp }}/gitee-apks
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.artifact_run_id || github.run_id }}
 
       - name: Prepare current build metadata
         if: inputs.artifact_name != ''
         run: |
           python3 - <<'PY'
-          import hashlib, json, os, pathlib
+          import hashlib, json, os, pathlib, subprocess
           directory = pathlib.Path(os.environ['RUNNER_TEMP'])
           apks = list((directory / 'gitee-apks').glob('*.apk'))
           if len(apks) != 1:
               raise SystemExit('Expected one signed APK build artifact')
           apk = apks[0]
+          expected_name = 'RuanCunDrink-' + os.environ['RELEASE_TAG'].removeprefix('v') + '-release.apk'
+          if apk.name != expected_name:
+              raise SystemExit('The artifact filename does not match the release version')
+          source_commit = os.environ['GITHUB_SHA']
+          if os.environ.get('ARTIFACT_RUN_ID'):
+              run_id = os.environ['ARTIFACT_RUN_ID']
+              if not run_id.isdecimal():
+                  raise SystemExit('Invalid artifact workflow run ID')
+              source_commit = subprocess.check_output(
+                  ['gh', 'api', 'repos/' + os.environ['GITHUB_REPOSITORY'] + '/actions/runs/' + run_id,
+                   '--jq', '.head_sha'], text=True
+              ).strip()
           release = {
               'tagName': os.environ['RELEASE_TAG'],
               'name': '软村饮水 ' + os.environ['RELEASE_TAG'],
               'body': '软村饮水 Android 签名安装包。源码与 APK 由 GitHub Actions 同步至 Gitee。',
-              'sourceCommit': os.environ['GITHUB_SHA'],
+              'sourceCommit': source_commit,
               'isDraft': False, 'isPrerelease': False,
               'assets': [{'name': apk.name, 'size': apk.stat().st_size,
                           'digest': 'sha256:' + hashlib.sha256(apk.read_bytes()).hexdigest()}]

@@ -7,12 +7,13 @@ import json
 import os
 from pathlib import Path
 import re
+import subprocess
 import sys
+import tempfile
 import time
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode, urlsplit
 from urllib.request import Request, urlopen
-import uuid
 
 
 class SyncError(Exception):
@@ -58,6 +59,8 @@ class GiteeApi:
         self.prefix = "/repos/" + repository
 
     def request(self, method, path="", fields=None, upload=None, public=False):
+        if upload is not None:
+            return self.upload_attachment(path, upload)
         url = "https://gitee.com/api/v5" + self.prefix + path
         headers = {"Accept": "application/json", "User-Agent": "RuanCunDrink-Release"}
         data = None
@@ -67,28 +70,13 @@ class GiteeApi:
         if method == "GET":
             if values:
                 url += "?" + urlencode(values)
-        elif upload is None:
+        else:
             data = urlencode(values).encode()
             headers["Content-Type"] = "application/x-www-form-urlencoded"
-        else:
-            boundary = uuid.uuid4().hex
-            chunks = []
-            for name, value in values.items():
-                chunks.append(
-                    f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n{value}\r\n'.encode()
-                )
-            chunks.extend([
-                f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="{upload.name}"\r\n'
-                'Content-Type: application/vnd.android.package-archive\r\n\r\n'.encode(),
-                upload.read_bytes(),
-                f"\r\n--{boundary}--\r\n".encode(),
-            ])
-            data = b"".join(chunks)
-            headers["Content-Type"] = f"multipart/form-data; boundary={boundary}"
         attempts = 3 if method in ("GET", "PATCH") else 1
         for attempt in range(attempts):
             try:
-                with urlopen(Request(url, data=data, headers=headers, method=method), timeout=300 if upload else 30) as response:
+                with urlopen(Request(url, data=data, headers=headers, method=method), timeout=30) as response:
                     return json.load(response)
             except HTTPError as error:
                 if error.code >= 500 and attempt + 1 < attempts:
@@ -105,6 +93,35 @@ class GiteeApi:
                 raise SyncError(f"Cannot connect to Gitee for {method} {self.prefix + path} ({type(reason).__name__})") from None
             except (ValueError, UnicodeError):
                 raise SyncError(f"Gitee returned invalid JSON for {method} {self.prefix + path}") from None
+
+    def upload_attachment(self, path, apk):
+        """Let curl stream multipart data; keep the token out of arguments and logs."""
+        config = '\n'.join([
+            'form-string = ' + json.dumps('access_token=' + self.token),
+            'form = ' + json.dumps('file=@' + str(apk) + ';type=application/vnd.android.package-archive'),
+        ])
+        print(f"Uploading {apk.name} to Gitee", flush=True)
+        with tempfile.TemporaryDirectory() as directory:
+            response = Path(directory) / "response.json"
+            command = ["curl", "--ipv4", "--silent", "--show-error", "--connect-timeout", "20",
+                       "--max-time", "300", "--request", "POST", "--header", "Accept: application/json",
+                       "--output", str(response), "--write-out", "%{http_code}", "--config", "-",
+                       "https://gitee.com/api/v5" + self.prefix + path]
+            try:
+                result = subprocess.run(command, input=config, text=True, stdout=subprocess.PIPE,
+                                        stderr=subprocess.PIPE, timeout=330)
+            except subprocess.TimeoutExpired:
+                raise SyncError("Gitee APK upload timed out") from None
+            if result.returncode:
+                reason = result.stderr.replace(self.token, "[REDACTED]").strip()[:250]
+                raise SyncError(f"Gitee APK upload failed (curl {result.returncode}): {reason}")
+            status = int(result.stdout.strip())
+            if not 200 <= status < 300:
+                raise SyncError(f"Gitee APK upload returned HTTP {status}", status)
+            try:
+                return json.loads(response.read_text())
+            except (ValueError, OSError):
+                raise SyncError("Gitee returned an invalid upload response") from None
 
     def check_repository(self):
         repository = self.request("GET")
@@ -180,7 +197,21 @@ def sync_release(api, metadata, apk, expected_digest):
     if len(matches) > 1:
         raise SyncError("The Gitee release contains duplicate APK attachments")
     if not matches:
-        api.request("POST", attachments_path, upload=apk)
+        for attempt in range(2):
+            try:
+                api.request("POST", attachments_path, upload=apk)
+                break
+            except SyncError as error:
+                if error.status is not None and error.status < 500:
+                    raise
+                # A timed out response can follow a successful upload. Check before retrying.
+                current = api.request("GET", attachments_path, fields={"per_page": 100})
+                if any(asset.get("name") == apk.name for asset in current):
+                    break
+                if attempt == 1:
+                    raise
+                print("Retrying the APK upload after checking Gitee attachments", flush=True)
+                time.sleep(2)
 
     # Resolve the link anonymously, exactly as the Android application will.
     for attempt in range(3):

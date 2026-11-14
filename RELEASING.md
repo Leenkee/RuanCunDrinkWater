@@ -52,6 +52,16 @@ gh workflow run sync-gitee-release.yml \
 
 `tag=latest` 同步 GitHub 最新正式版本。该流程同步 GitHub main 源码，再下载现有 APK、复制发行说明、上传到 Gitee 发行版。重复运行会校验同名附件；若文件一致则跳过上传，若不同则报错而不覆盖。
 
+如果仅 Gitee 同步步骤失败，或者 GitHub 发行页已删除，可直接复用原 Actions 签名产物，既不重新编译也不重新发布 GitHub 发行版：
+
+```bash
+gh workflow run sync-gitee-release.yml \
+  --repo Leenkee/RuanCunDrinkWater --ref main \
+  -f tag=v1.3.28 \
+  -f artifact_name=RuanCunDrink-1.3.28-release.apk \
+  -f artifact_run_id=43589188353
+```
+
 本地编译默认使用上述 Gitee 仓库，可通过 `-PGITEE_REPOSITORY=owner/repository` 或同名环境变量覆盖。已有旧版应用需要安装切换后的新版本，才能使用 Gitee 检查更新和下载；升级后会忽略之前缓存的 GitHub 下载链接。
 
 接口依据：[Gitee API v5](https://gitee.com/api/v5/swagger)、[发行版附件下载路由](https://blog.gitee.com/2022/08/18/update/)。
