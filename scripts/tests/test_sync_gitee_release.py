@@ -80,6 +80,21 @@ class GiteeReleaseSyncTest(unittest.TestCase):
             sync.sync_release(api, self.metadata, self.apk, self.digest)
         self.assertFalse(any(method == "POST" for method, _, _ in api.calls))
 
+    def test_missing_tag_returned_as_json_null_creates_the_release(self):
+        api = FakeApi()
+        original_request = api.request
+
+        def request(method, path="", **kwargs):
+            if method == "GET" and path.startswith("/releases/tags/") and not kwargs.get("public"):
+                return None
+            return original_request(method, path, **kwargs)
+
+        api.request = request
+        with patch.object(sync, "download_sha256", return_value=self.digest):
+            sync.sync_release(api, self.metadata, self.apk, self.digest)
+        self.assertTrue(api.existing)
+        self.assertTrue(api.attached)
+
     def test_different_existing_apk_is_never_overwritten(self):
         api = FakeApi(existing=True, attached=True)
         with patch.object(sync, "download_sha256", return_value="different"):

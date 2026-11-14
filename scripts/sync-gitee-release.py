@@ -152,6 +152,9 @@ def sync_release(api, metadata, apk, expected_digest):
     except SyncError as error:
         if error.status != 404:
             raise
+        release = None
+    # Gitee can report a missing tag with HTTP 200 and a JSON null body.
+    if release is None:
         release = api.request("POST", "/releases", fields={
             "tag_name": tag,
             "name": metadata.get("name") or tag,
@@ -159,7 +162,7 @@ def sync_release(api, metadata, apk, expected_digest):
             "prerelease": "false",
             "target_commitish": target,
         })
-    if release.get("tag_name") != tag or release.get("prerelease"):
+    if not isinstance(release, dict) or release.get("tag_name") != tag or release.get("prerelease"):
         raise SyncError("The existing Gitee release does not match the stable release tag")
     attachments_path = f'/releases/{int(release["id"])}/attach_files'
     attachments = []
