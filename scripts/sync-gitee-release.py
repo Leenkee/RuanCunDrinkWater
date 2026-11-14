@@ -77,16 +77,26 @@ class GiteeApi:
             ])
             data = b"".join(chunks)
             headers["Content-Type"] = f"multipart/form-data; boundary={boundary}"
-        try:
-            with urlopen(Request(url, data=data, headers=headers, method=method), timeout=300 if upload else 60) as response:
-                return json.load(response)
-        except HTTPError as error:
-            # Never print request URLs or response bodies containing credentials.
-            raise SyncError(f"Gitee {method} {self.prefix + path}: HTTP {error.code}", error.code) from None
-        except (URLError, TimeoutError) as error:
-            raise SyncError(f"Cannot connect to Gitee for {method} {self.prefix + path} ({type(error).__name__})") from None
-        except (ValueError, UnicodeError):
-            raise SyncError(f"Gitee returned invalid JSON for {method} {self.prefix + path}") from None
+        attempts = 3 if method in ("GET", "PATCH") else 1
+        for attempt in range(attempts):
+            try:
+                with urlopen(Request(url, data=data, headers=headers, method=method), timeout=300 if upload else 30) as response:
+                    return json.load(response)
+            except HTTPError as error:
+                if error.code >= 500 and attempt + 1 < attempts:
+                    time.sleep(2)
+                    continue
+                # Never print request URLs or response bodies containing credentials.
+                raise SyncError(f"Gitee {method} {self.prefix + path}: HTTP {error.code}", error.code) from None
+            except (URLError, TimeoutError) as error:
+                if attempt + 1 < attempts:
+                    print(f"Retrying Gitee {method} {self.prefix + path}", flush=True)
+                    time.sleep(2)
+                    continue
+                reason = getattr(error, "reason", error)
+                raise SyncError(f"Cannot connect to Gitee for {method} {self.prefix + path} ({type(reason).__name__})") from None
+            except (ValueError, UnicodeError):
+                raise SyncError(f"Gitee returned invalid JSON for {method} {self.prefix + path}") from None
 
     def check_repository(self):
         repository = self.request("GET")

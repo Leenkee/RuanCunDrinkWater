@@ -22,7 +22,15 @@ export GIT_ASKPASS="$ASKPASS_FILE"
 export GIT_TERMINAL_PROMPT=0
 
 git fetch origin main --no-tags
-git -c credential.helper= push "https://gitee.com/$GITEE_REPOSITORY.git" \
-    refs/remotes/origin/main:refs/heads/main
 SOURCE_COMMIT=$(git rev-parse refs/remotes/origin/main)
+if ! git -c credential.helper= push "https://gitee.com/$GITEE_REPOSITORY.git" \
+    refs/remotes/origin/main:refs/heads/main; then
+    # Two workflows can create/update the same branch concurrently.
+    REMOTE_COMMIT=$(git -c credential.helper= ls-remote "https://gitee.com/$GITEE_REPOSITORY.git" refs/heads/main | cut -f1)
+    if [[ "$REMOTE_COMMIT" != "$SOURCE_COMMIT" ]]; then
+        echo "Gitee main differs from GitHub main; refusing to overwrite it" >&2
+        exit 1
+    fi
+    echo "Gitee main was already synchronized by another workflow"
+fi
 python3 scripts/sync-gitee-release.py --source-commit "$SOURCE_COMMIT"

@@ -164,6 +164,13 @@ class GiteeReleaseSyncTest(unittest.TestCase):
         self.assertNotIn("secret-value", str(caught.exception))
         self.assertEqual(403, caught.exception.status)
 
+    def test_transient_gitee_connection_failure_is_retried_for_reads(self):
+        api = sync.GiteeApi("owner/downloads", "test-token")
+        with patch.object(sync, "urlopen", side_effect=[TimeoutError(), io.BytesIO(b'{"public":true}')]) as opened:
+            with patch.object(sync.time, "sleep"):
+                self.assertEqual({"public": True}, api.request("GET"))
+        self.assertEqual(2, opened.call_count)
+
     def test_upload_uses_the_documented_multipart_file_field(self):
         api = sync.GiteeApi("owner/downloads", "test-token")
         with patch.object(sync, "urlopen", return_value=io.BytesIO(b'{"id":1}')) as opened:
