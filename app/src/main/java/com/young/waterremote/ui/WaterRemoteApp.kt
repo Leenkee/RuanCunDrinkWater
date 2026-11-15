@@ -91,6 +91,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -123,8 +124,8 @@ import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 
 private enum class MainSection(val title: String, val label: String) {
-    CONTROL("软村饮水", "控制"),
-    DEVICES("设备绑定", "设备"),
+    CONTROL("软村饮水", "饮水"),
+    DEVICES("设备绑定", "饮水机"),
     ACCOUNT("我的", "我的")
 }
 
@@ -652,8 +653,8 @@ private fun MainShell(
             NavigationBar {
                 MainSection.entries.forEach { item ->
                     val icon = when (item) {
-                        MainSection.CONTROL -> Icons.Default.PlayArrow
-                        MainSection.DEVICES -> Icons.Default.Build
+                        MainSection.CONTROL -> ImageVector.vectorResource(R.drawable.ic_water_cup)
+                        MainSection.DEVICES -> ImageVector.vectorResource(R.drawable.ic_water_dispenser)
                         MainSection.ACCOUNT -> Icons.Default.Person
                     }
                     NavigationBarItem(
@@ -1126,7 +1127,7 @@ private fun SettingsScreen(
                         HelpCard(
                             icon = Icons.Default.Refresh,
                             title = "查看账户余额",
-                            description = "控制页面和“我的”页面会显示小天同学喝水账户余额；进入“我的”或饮水结束后会自动刷新。"
+                            description = "“饮水”页面和“我的”页面会显示小天同学喝水账户余额；进入“我的”或饮水结束后会自动刷新。"
                         )
                     }
                     item {
@@ -1497,17 +1498,15 @@ private fun WaterControlCard(
                 fontWeight = FontWeight.Bold,
                 color = accent
             )
-            Text(
-                text = when {
-                    loading -> "正在发送指令…"
-                    bound -> "点击开启饮水机"
-                    else -> "未绑定 · 去绑定"
-                },
-                modifier = Modifier.padding(top = 5.dp),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.bodySmall,
-                textAlign = TextAlign.Center
-            )
+            if (loading || !bound) {
+                Text(
+                    text = if (loading) "正在发送指令…" else "未绑定 · 去绑定",
+                    modifier = Modifier.padding(top = 5.dp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                    textAlign = TextAlign.Center
+                )
+            }
         }
     }
 }
