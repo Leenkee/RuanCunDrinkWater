@@ -1,67 +1,55 @@
-# 手动发布
+# 本地发布
 
-GitHub 作为开发主仓库并运行签名构建；[Gitee 仓库](https://gitee.com/young-patronum/ruan-cun-drink-water)同步 GitHub main 的完整源码与提交历史，并接收发行版 APK。应用内手动和自动检查更新均读取 Gitee 的正式发行版，下载按钮使用其实际 APK 附件地址。
+源码同时维护在 [GitHub](https://github.com/Leenkee/RuanCunDrinkWater) 和 [Gitee](https://gitee.com/young-patronum/ruan-cun-drink-water)。所有测试、lint、签名编译和 APK 上传均从本机执行，不使用 GitHub Actions。两端发布同一次本地构建的 APK，并验证下载文件的 SHA-256。
 
-首次使用前，在 GitHub 仓库的 Actions 设置中配置：
+应用的手动检查和每日自动检查均匿名请求 `https://gitee.com/api/v5/repos/young-patronum/ruan-cun-drink-water/releases/latest`，读取正式版标签中的版本号，并打开该发行版的 Gitee APK 附件下载地址。旧版升级后会忽略缓存的 GitHub 下载链接；令牌只用于本机发布，不进入 APK。
 
-- Repository variable `GITEE_REPOSITORY`：`young-patronum/ruan-cun-drink-water`。
-- Repository secret `GITEE_TOKEN`：具有该仓库发布权限、勾选 `projects` 权限的 Gitee 私人令牌。令牌仅在 Actions 中使用，不会写入 APK。
+## 本机准备
 
-Gitee 仓库必须公开。每次推送 GitHub main 时自动同步至 Gitee main，并将 Gitee 默认分支设为 main。同步使用普通快进推送；若有人在 Gitee main 单独提交导致分叉，会报错而不会强制覆盖。发布时先确保源码已同步，新发行版标签指向 GitHub 对应版本的源码提交。
+- 安装 Git、Python 3、curl、GitHub CLI，并执行 `gh auth login`。
+- 安装 JDK 17 或更高版本、Android SDK（含 cmdline-tools、build-tools、platforms;android-35），通过 `local.properties` 中的 `sdk.dir` 或 `ANDROID_HOME` 指定 SDK。此电脑的 Android Studio JBR 会自动用于构建，也可设置 `JAVA_HOME`。
+- 将 Gitee 私人令牌单独一行放入项目根目录的 `gitee_key.md`，执行 `chmod 600 gitee_key.md`。该文件已被 Git 忽略。令牌需有目标仓库的 `projects` 权限。也可使用 `GITEE_TOKEN`、`GITEE_TOKEN_FILE` 或 `--gitee-token-file /path/to/token`，优先级依次为环境令牌、命令行文件、环境文件、默认文件。
+- 签名必须与已安装版本一致。此电脑的 `~/.android/debug.keystore` 与历史版本证书一致，脚本会验证证书指纹后使用它。其他电脑需要复制原密钥，并完整配置 `ANDROID_KEYSTORE_PATH`、`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD`。不要生成新密钥替代原密钥。
 
-发布工作流只在手动触发时运行。推送到 `main` 或推送标签均不会自动触发该工作流，每次运行发布脚本只触发一次 Actions。
+Gitee 仓库必须公开。默认目标为 `young-patronum/ruan-cun-drink-water`。如需变更，可设置 `GITEE_REPOSITORY=owner/repository`；构建配置和上传脚本使用同一个值。
 
-需要发布时，可在项目根目录直接运行：
+## 发布新版本
+
+1. 递增 `app/build.gradle.kts` 中的 `versionName` 和 `versionCode`，将修改提交到本地 `main`。
+2. 在干净的工作区运行：
 
 ```bash
 ./scripts/publish-release.sh
 ```
 
-脚本会自动读取源码中的 `versionName` 和最新提交标题，检查工作区、`main` 分支及远端同步状态，并在一次确认后触发 GitHub Actions，无需打开网页或手填版本号。Actions 的运行名称显示为“发布 v版本号 · 最新提交标题”，便于直接查看本次修改。自动化环境可使用 `./scripts/publish-release.sh --yes` 跳过确认。
+脚本先运行发布脚本测试、Android 单元测试、`lintRelease` 和 `assembleRelease`，核对 APK 包名、版本、非调试属性及历史签名证书。随后显示版本、源码提交、APK 路径和 SHA-256，在确认后把本地 `main` 同步至 GitHub 和 Gitee，再创建两端正式发行版、上传相同 APK 并核对下载内容。标签指向 APK 对应的源码提交。
 
-发布前请确认：
+两端都使用普通快进推送。若任何一端的 `main` 有本地尚未合入的提交，脚本会在推送前报错；先合并这些提交再重试。发布中途失败时，两端可能暂时不同步，修复后可以重复运行同步或复用原安装包继续上传。脚本不强制覆盖分支、标签或同版本的不同 APK。
 
-1. 确认 `app/build.gradle.kts` 的 `versionName`、`versionCode` 已递增，并推送代码。
-2. 本地 `main` 没有未提交修改，并且已经与 `origin/main` 同步。
-3. 运行上述脚本。同步脚本测试、Android 单元测试、lint、签名构建通过后，工作流会为该提交创建 GitHub 标签及 Release，附加签名 APK，再将同一次构建的签名 APK 上传到 Gitee，并核对公开下载文件的 SHA-256。发布流程直接读取 Actions 构建产物，不依赖后续 GitHub 发行页是否仍然存在。
+自动化调用可加 `--yes` 跳过上传确认；已缓存构建依赖时可加 `--offline`。
 
-只想获取安装包时，不勾选 `publish_release`；构建结束后下载该次运行的 Artifacts。
+## 只编译或复用本地 APK
 
-工作流会验证输入版本与源码一致，并拒绝覆盖已存在的 Release，或使用指向其他提交的同名标签。发布时使用仓库已配置的签名 Secrets，与现有安装包保持同一证书。
-
-也可直接使用 GitHub CLI 触发，但此方式需要自行填写版本号：
+只测试和生成签名包，不连接发布平台：
 
 ```bash
-gh workflow run android-release.yml \
-  --repo Leenkee/RuanCunDrinkWater --ref main \
-  -f publish_release=true -f release_version=1.3.21 \
-  -f change_summary="本次修改说明"
+./scripts/publish-release.sh --prepare-only
 ```
 
-只有 Gitee 正式发行版及其 APK 附件可公开下载后，应用内检查更新才会发现新版本；Actions Artifacts 不会被视为已发布版本。
-
-## 单独同步已有安装包
-
-同步失败时，无需重新构建或再次发布 GitHub Release。可手动触发专用流程同步任意已发布版本：
+产物保存到 `app/build/local-releases/v版本号/`，包含 APK、`release.json` 和发行说明。上传失败后应复用这些文件，避免重新编译产生不同内容：
 
 ```bash
-gh workflow run sync-gitee-release.yml \
-  --repo Leenkee/RuanCunDrinkWater --ref main \
-  -f tag=v1.3.26
+./scripts/publish-release.sh --apk app/build/local-releases/v1.3.29/RuanCunDrink-1.3.29-release.apk --yes
 ```
 
-`tag=latest` 同步 GitHub 最新正式版本。该流程同步 GitHub main 源码，再下载现有 APK、复制发行说明、上传到 Gitee 发行版。重复运行会校验同名附件；若文件一致则跳过上传，若不同则报错而不覆盖。
+`--apk` 不重新构建，仍会验证签名、版本及源码提交，并从同目录 `release.json` 核对原始哈希。没有该元数据的现有签名包可通过 `--source-commit 完整提交SHA` 指定来源提交。已有同名安装包会验证哈希；相同则跳过上传，不同则报错。复用旧版本 APK 时同步当前 `main`，发行标签仍指向旧版 APK 的源码提交。
 
-如果仅 Gitee 同步步骤失败，或者 GitHub 发行页已删除，可直接复用原 Actions 签名产物，既不重新编译也不重新发布 GitHub 发行版：
+## 只同步源码
+
+每次提交后使用：
 
 ```bash
-gh workflow run sync-gitee-release.yml \
-  --repo Leenkee/RuanCunDrinkWater --ref main \
-  -f tag=v1.3.28 \
-  -f artifact_name=RuanCunDrink-1.3.28-release.apk \
-  -f artifact_run_id=43589188353
+bash scripts/sync-gitee-source.sh
 ```
 
-本地编译默认使用上述 Gitee 仓库，可通过 `-PGITEE_REPOSITORY=owner/repository` 或同名环境变量覆盖。已有旧版应用需要安装切换后的新版本，才能使用 Gitee 检查更新和下载；升级后会忽略之前缓存的 GitHub 下载链接。
-
-接口依据：[Gitee API v5](https://gitee.com/api/v5/swagger)、[发行版附件下载路由](https://blog.gitee.com/2022/08/18/update/)。
+此命令从本地读取同一个令牌文件，将当前干净的 `main` 推送至 GitHub 和 Gitee，并确认两端指向同一提交，不编译或发布 APK。也可运行 `./scripts/publish-release.sh --sync-only`。单独执行 `git push origin` 只推送 GitHub，需要接着运行上述同步命令。

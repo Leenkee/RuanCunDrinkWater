@@ -9,10 +9,10 @@ val giteeRepository = providers.gradleProperty("GITEE_REPOSITORY")
     .orElse(providers.environmentVariable("GITEE_REPOSITORY"))
     .orElse("young-patronum/ruan-cun-drink-water")
     .get()
-val ciKeystorePath = providers.environmentVariable("ANDROID_KEYSTORE_PATH").orNull
-val ciKeystorePassword = providers.environmentVariable("ANDROID_KEYSTORE_PASSWORD").orNull
-val ciKeyAlias = providers.environmentVariable("ANDROID_KEY_ALIAS").orNull
-val ciKeyPassword = providers.environmentVariable("ANDROID_KEY_PASSWORD").orNull
+val releaseKeystorePath = providers.environmentVariable("ANDROID_KEYSTORE_PATH").orNull
+val releaseKeystorePassword = providers.environmentVariable("ANDROID_KEYSTORE_PASSWORD").orNull
+val releaseKeyAlias = providers.environmentVariable("ANDROID_KEY_ALIAS").orNull
+val releaseKeyPassword = providers.environmentVariable("ANDROID_KEY_PASSWORD").orNull
 
 android {
     namespace = "com.young.waterremote"
@@ -22,8 +22,8 @@ android {
         applicationId = "com.young.waterremote"
         minSdk = 28
         targetSdk = 35
-        versionCode = 32
-        versionName = "1.3.28"
+        versionCode = 33
+        versionName = "1.3.29"
 
         buildConfigField("String", "GITEE_REPOSITORY", "\"$giteeRepository\"")
 
@@ -32,16 +32,16 @@ android {
 
     signingConfigs {
         if (
-            ciKeystorePath != null &&
-            ciKeystorePassword != null &&
-            ciKeyAlias != null &&
-            ciKeyPassword != null
+            releaseKeystorePath != null &&
+            releaseKeystorePassword != null &&
+            releaseKeyAlias != null &&
+            releaseKeyPassword != null
         ) {
-            create("ciRelease") {
-                storeFile = file(ciKeystorePath)
-                storePassword = ciKeystorePassword
-                keyAlias = ciKeyAlias
-                keyPassword = ciKeyPassword
+            create("localRelease") {
+                storeFile = file(releaseKeystorePath)
+                storePassword = releaseKeystorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
             }
         }
     }
@@ -54,7 +54,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfig = signingConfigs.findByName("ciRelease")
+            signingConfig = signingConfigs.findByName("localRelease")
         }
     }
 

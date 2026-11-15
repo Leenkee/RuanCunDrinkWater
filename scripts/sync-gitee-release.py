@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify mirrored source commits and copy signed GitHub release APKs to Gitee."""
+"""Upload a local signed release APK to Gitee and verify its public download."""
 
 import argparse
 import hashlib
@@ -53,7 +53,7 @@ class GiteeApi:
         if not re.fullmatch(r"[\w.-]+/[\w.-]+", repository, flags=re.ASCII):
             raise SyncError("Set GITEE_REPOSITORY to owner/repository")
         if not token:
-            raise SyncError("Set the GitHub Actions secret GITEE_TOKEN (Gitee projects permission)")
+            raise SyncError("Set GITEE_TOKEN with Gitee projects permission")
         self.repository = repository
         self.token = token
         self.prefix = "/repos/" + repository
@@ -194,6 +194,9 @@ def sync_release(api, metadata, apk, expected_digest):
             break
         page += 1
     matches = [asset for asset in attachments if asset.get("name") == apk.name]
+    if any(asset.get("name", "").lower().endswith(".apk") and asset.get("name") != apk.name
+           for asset in attachments):
+        raise SyncError("The Gitee release already contains a different APK; refusing to overwrite it")
     if len(matches) > 1:
         raise SyncError("The Gitee release contains duplicate APK attachments")
     if not matches:
@@ -224,7 +227,7 @@ def sync_release(api, metadata, apk, expected_digest):
             raise SyncError("The uploaded APK is not visible in the public Gitee release")
         time.sleep(2)
     if download_sha256(urls[0]) != expected_digest:
-        raise SyncError("The public Gitee APK SHA-256 differs from GitHub; refusing to overwrite the release")
+        raise SyncError("The public Gitee APK SHA-256 differs from the local APK; refusing to overwrite the release")
     return {"tag": tag, "download_url": urls[0], "sha256": expected_digest}
 
 
@@ -251,9 +254,6 @@ def main():
     apk, digest = select_apk(metadata, args.apk_dir)
     result = sync_release(api, metadata, apk, digest)
     print(json.dumps(result, ensure_ascii=False))
-    if os.environ.get("GITHUB_STEP_SUMMARY"):
-        with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as summary:
-            summary.write(f'Gitee APK: [{apk.name}]({result["download_url"]})\n\nSHA-256: `{digest}`\n')
 
 
 if __name__ == "__main__":

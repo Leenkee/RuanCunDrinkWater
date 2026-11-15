@@ -99,6 +99,20 @@ class GiteeReleaseSyncTest(unittest.TestCase):
                 sync.sync_release(api, self.metadata, self.apk, self.digest)
         self.assertFalse(any(method == "POST" for method, _, _ in api.calls))
 
+    def test_another_apk_filename_cannot_be_added_to_the_same_release(self):
+        api = FakeApi(existing=True, attached=True)
+        original_request = api.request
+
+        def request(method, path="", **kwargs):
+            if method == "GET" and path.endswith("/attach_files"):
+                return [{"name": "other.apk"}]
+            return original_request(method, path, **kwargs)
+
+        api.request = request
+        with self.assertRaisesRegex(sync.SyncError, "different APK"):
+            sync.sync_release(api, self.metadata, self.apk, self.digest)
+        self.assertFalse(any(method == "POST" for method, _, _ in api.calls))
+
     def test_missing_public_apk_is_not_reported_as_success(self):
         api = FakeApi(existing=True, attached=True)
         original_request = api.request

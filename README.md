@@ -16,5 +16,7 @@
 - 提供使用帮助和 iOS 用户喝水入口
 - 在“设置 → 导出日志”中保存最近 7 天的诊断日志，用于排查接水异常；日志保存在应用私有目录，启动、写入、导出及运行期间每小时清理过期记录
 - 日志包含接口状态码、响应消息、脱敏后的接水响应及解析结果，不保存密码、验证码、登录 token 或原始加密报文，设备标识使用摘要关联
-- 在“设置 → 版本”中检查 Gitee 发行版并下载 APK；签名安装包由 GitHub Actions 构建后同步到 Gitee，应用源码也从 GitHub main 自动同步到 Gitee main
+- 在“设置 → 版本”中检查 Gitee 发行版并下载 APK；签名安装包在本地编译后上传到 GitHub 和 Gitee，发布时同步两端 main 源码
 - 可在版本页面选择每天中午自动检查更新，发现新版时在应用内提示
+
+源码：[GitHub](https://github.com/Leenkee/RuanCunDrinkWater)、[Gitee](https://gitee.com/young-patronum/ruan-cun-drink-water)。本地发布与源码同步见 [RELEASING.md](RELEASING.md)。
