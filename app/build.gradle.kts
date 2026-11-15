@@ -5,9 +5,9 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
-val giteeRepository = providers.gradleProperty("GITEE_REPOSITORY")
-    .orElse(providers.environmentVariable("GITEE_REPOSITORY"))
-    .orElse("young-patronum/ruan-cun-drink-water")
+val gitCodeRepository = providers.gradleProperty("GITCODE_REPOSITORY")
+    .orElse(providers.environmentVariable("GITCODE_REPOSITORY"))
+    .orElse("weixin_62215579/RuanCunDrinkWater")
     .get()
 val releaseKeystorePath = providers.environmentVariable("ANDROID_KEYSTORE_PATH").orNull
 val releaseKeystorePassword = providers.environmentVariable("ANDROID_KEYSTORE_PASSWORD").orNull
@@ -22,10 +22,10 @@ android {
         applicationId = "com.young.waterremote"
         minSdk = 28
         targetSdk = 35
-        versionCode = 33
-        versionName = "1.3.29"
+        versionCode = 34
+        versionName = "1.3.30"
 
-        buildConfigField("String", "GITEE_REPOSITORY", "\"$giteeRepository\"")
+        buildConfigField("String", "GITCODE_REPOSITORY", "\"$gitCodeRepository\"")
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

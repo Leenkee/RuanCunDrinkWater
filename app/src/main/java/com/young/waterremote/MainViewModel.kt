@@ -10,7 +10,7 @@ import androidx.lifecycle.viewModelScope
 import com.young.waterremote.data.AvailableRelease
 import com.young.waterremote.data.DeviceBindings
 import com.young.waterremote.data.DrinkingStatus
-import com.young.waterremote.data.GiteeUpdateChecker
+import com.young.waterremote.data.GitCodeUpdateChecker
 import com.young.waterremote.data.InputValidator
 import com.young.waterremote.data.LegacyWaterApi
 import com.young.waterremote.data.RemoteApiException
@@ -84,7 +84,7 @@ data class AppUiState(
 class MainViewModel(
     private val api: LegacyWaterApi,
     private val store: SessionStore,
-    private val updateChecker: GiteeUpdateChecker,
+    private val updateChecker: GitCodeUpdateChecker,
     private val autoUpdates: AutoUpdateStore,
     private val autoUpdateScheduler: AutoUpdateScheduler
 ) : ViewModel() {
@@ -278,7 +278,7 @@ class MainViewModel(
 
     fun checkForUpdates() {
         if (_state.value.isCheckingUpdate) return
-        val repository = BuildConfig.GITEE_REPOSITORY.trim()
+        val repository = BuildConfig.GITCODE_REPOSITORY.trim()
         if (repository.isBlank()) {
             showMessage("更新服务尚未配置")
             return
@@ -661,7 +661,7 @@ class MainViewModelFactory(context: Context) : ViewModelProvider.Factory {
             return MainViewModel(
                 api = LegacyWaterApi(),
                 store = SessionStore(appContext),
-                updateChecker = GiteeUpdateChecker(),
+                updateChecker = GitCodeUpdateChecker(),
                 autoUpdates = AutoUpdateStore(appContext),
                 autoUpdateScheduler = AutoUpdateScheduler(appContext)
             ) as T

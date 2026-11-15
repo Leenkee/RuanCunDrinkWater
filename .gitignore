@@ -17,6 +17,7 @@ __pycache__/
 *.jks
 *.keystore
 gitee_key.md
+gitCode_token
 
 # OS metadata
 .DS_Store

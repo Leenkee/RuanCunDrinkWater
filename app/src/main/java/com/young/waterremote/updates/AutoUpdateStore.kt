@@ -6,7 +6,7 @@ import androidx.core.content.edit
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.young.waterremote.data.AvailableRelease
-import com.young.waterremote.data.isGiteeDownloadUrl
+import com.young.waterremote.data.isGitCodeDownloadUrl
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.callbackFlow
 import java.time.ZonedDateTime
@@ -56,7 +56,7 @@ class AutoUpdateStore(context: Context) {
         return runCatching {
             val root = JsonParser.parseString(json).asJsonObject
             AvailableRelease(root.get("version").asString, root.get("download").asString, root.get("page").asString)
-                .takeIf { isGiteeDownloadUrl(it.downloadUrl) }
+                .takeIf { isGitCodeDownloadUrl(it.downloadUrl) }
         }.getOrNull()
     }
 

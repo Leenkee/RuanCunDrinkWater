@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build, verify and upload the same local signed APK to GitHub and Gitee."""
+"""Build, verify and upload the same local signed APK to GitHub and GitCode."""
 
 import argparse
 from contextlib import contextmanager
@@ -19,12 +19,12 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 GITHUB_REPOSITORY = "Leenkee/RuanCunDrinkWater"
-GITEE_REPOSITORY = "young-patronum/ruan-cun-drink-water"
+GITCODE_REPOSITORY = "weixin_62215579/RuanCunDrinkWater"
 APPLICATION_ID = "com.young.waterremote"
 CERTIFICATE_SHA256 = "402f7c6af57d5f18b8300ec75840bbbf180e04d05b8e0ce0e6514ef25896ffa5"
-SPEC = importlib.util.spec_from_file_location("gitee_release_sync", ROOT / "scripts/sync-gitee-release.py")
-gitee = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(gitee)
+SPEC = importlib.util.spec_from_file_location("gitcode_release_sync", ROOT / "scripts/sync-gitcode-release.py")
+gitcode = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(gitcode)
 
 
 class PublishError(Exception):
@@ -64,7 +64,7 @@ def local_environment(require_signing=True):
             env["JAVA_HOME"] = str(java_home)
     if env.get("JAVA_HOME"):
         env["PATH"] = str(Path(env["JAVA_HOME"]) / "bin") + os.pathsep + env.get("PATH", "")
-    env.setdefault("GITEE_REPOSITORY", GITEE_REPOSITORY)
+    env.setdefault("GITCODE_REPOSITORY", GITCODE_REPOSITORY)
     if not require_signing:
         return env
     names = ["ANDROID_KEYSTORE_PATH", "ANDROID_KEYSTORE_PASSWORD", "ANDROID_KEY_ALIAS", "ANDROID_KEY_PASSWORD"]
@@ -137,7 +137,7 @@ def prepare(args, env, head):
         stored_path = apk.parent / "release.json"
         stored = json.loads(stored_path.read_text()) if stored_path.is_file() else None
         if stored:
-            stored_apk, _ = gitee.select_apk(stored, apk.parent)
+            stored_apk, _ = gitcode.select_apk(stored, apk.parent)
             if stored_apk.resolve() != apk or stored.get("tagName") != "v" + version:
                 raise PublishError("已有 APK 与 release.json 不匹配")
         commit = args.source_commit or (stored or {}).get("sourceCommit") or head
@@ -165,10 +165,10 @@ def prepare(args, env, head):
     directory.mkdir(parents=True, exist_ok=True)
     target = directory / f"RuanCunDrink-{version}-release.apk"
     if apk.resolve() != target.resolve():
-        if target.exists() and gitee.sha256(target.read_bytes()) != gitee.sha256(apk.read_bytes()):
+        if target.exists() and gitcode.sha256(target.read_bytes()) != gitcode.sha256(apk.read_bytes()):
             raise PublishError(f"该版本已有不同的本地产物，请使用 --apk {target} 重试原包，或递增版本号")
         shutil.copy2(apk, target)
-    digest = gitee.sha256(target.read_bytes())
+    digest = gitcode.sha256(target.read_bytes())
     body = args.notes_file.read_text() if args.notes_file else (stored or {}).get("body")
     if body is None:
         body = run(["git", "log", "-1", "--pretty=%s", commit], capture=True)
@@ -180,37 +180,37 @@ def prepare(args, env, head):
     return release, target, digest
 
 
-def read_gitee_token(args, env):
-    if env.get("GITEE_TOKEN", "").strip():
-        return env["GITEE_TOKEN"].strip()
-    path = args.gitee_token_file or Path(env.get("GITEE_TOKEN_FILE", ROOT / "gitee_key.md"))
+def read_gitcode_token(args, env):
+    if env.get("GITCODE_TOKEN", "").strip():
+        return env["GITCODE_TOKEN"].strip()
+    path = args.gitcode_token_file or Path(env.get("GITCODE_TOKEN_FILE", ROOT / "gitCode_token"))
     if path.is_file():
         if stat.S_IMODE(path.stat().st_mode) & 0o077:
-            raise PublishError("Gitee 令牌文件权限需设为 600")
+            raise PublishError("GitCode 令牌文件权限需设为 600")
         token = path.read_text().strip()
         if not token or len(token.splitlines()) != 1:
-            raise PublishError("Gitee 令牌文件应只包含一行私人令牌")
+            raise PublishError("GitCode 令牌文件应只包含一行私人令牌")
         return token
-    if args.gitee_token_file or env.get("GITEE_TOKEN_FILE"):
-        raise PublishError("指定的 Gitee 令牌文件不存在")
+    if args.gitcode_token_file or env.get("GITCODE_TOKEN_FILE"):
+        raise PublishError("指定的 GitCode 令牌文件不存在")
     if not sys.stdin.isatty():
-        raise PublishError("请配置 GITEE_TOKEN 或 --gitee-token-file；非交互模式无法输入令牌")
-    return getpass.getpass("Gitee 私人令牌（输入不显示）: ").strip()
+        raise PublishError("请配置 GITCODE_TOKEN 或 --gitcode-token-file；非交互模式无法输入令牌")
+    return getpass.getpass("GitCode 私人令牌（输入不显示）: ").strip()
 
 
 @contextmanager
-def gitee_git_environment(env, token):
+def gitcode_git_environment(env, token):
     # Git reads the token from the environment, never from the remote URL or argv.
     with tempfile.TemporaryDirectory(prefix="ruancun-git-") as directory:
         askpass = Path(directory) / "askpass.sh"
         askpass.write_text('''#!/usr/bin/env sh
 case "$1" in
-    *Username*) printf '%s\\n' "${GITEE_REPOSITORY%%/*}" ;;
-    *Password*) printf '%s\\n' "$GITEE_TOKEN" ;;
+    *Username*) printf '%s\\n' "${GITCODE_REPOSITORY%%/*}" ;;
+    *Password*) printf '%s\\n' "$GITCODE_TOKEN" ;;
 esac
 ''')
         askpass.chmod(0o700)
-        yield dict(env, GIT_ASKPASS=str(askpass), GIT_TERMINAL_PROMPT="0", GITEE_TOKEN=token)
+        yield dict(env, GIT_ASKPASS=str(askpass), GIT_TERMINAL_PROMPT="0", GITCODE_TOKEN=token)
 
 
 def check_tag(metadata, remote="origin", env=None):
@@ -225,21 +225,21 @@ def check_tag(metadata, remote="origin", env=None):
 
 
 def sync_source(env, token, head, metadata=None):
-    api = gitee.GiteeApi(env["GITEE_REPOSITORY"], token)
+    api = gitcode.GitCodeApi(env["GITCODE_REPOSITORY"], token)
     repository = api.check_repository()
     run(["git", "fetch", "origin", "main", "--no-tags"])
     if run(["git", "merge-base", "--is-ancestor", "origin/main", head], check=False).returncode:
         raise PublishError("GitHub main 包含本地尚未合入的提交，请先同步代码")
-    remote = "https://gitee.com/" + env["GITEE_REPOSITORY"] + ".git"
-    with gitee_git_environment(env, token) as git_env:
+    remote = "https://gitcode.com/" + env["GITCODE_REPOSITORY"] + ".git"
+    with gitcode_git_environment(env, token) as git_env:
         # Preflight both hosts before pushing either one. Never force a divergent branch.
         refs = run(["git", "-c", "credential.helper=", "ls-remote", remote, "refs/heads/main"],
                    env=git_env, capture=True)
         if refs:
-            gitee_head = refs.split()[0]
+            gitcode_head = refs.split()[0]
             run(["git", "-c", "credential.helper=", "fetch", "--no-tags", remote, "main"], env=git_env)
-            if run(["git", "merge-base", "--is-ancestor", gitee_head, head], check=False).returncode:
-                raise PublishError("Gitee main 与本地历史分叉，请先合并代码；不会强制覆盖")
+            if run(["git", "merge-base", "--is-ancestor", gitcode_head, head], check=False).returncode:
+                raise PublishError("GitCode main 与本地历史分叉，请先合并代码；不会强制覆盖")
         if metadata:
             check_tag(metadata)
             check_tag(metadata, remote, git_env)
@@ -252,7 +252,7 @@ def sync_source(env, token, head, metadata=None):
             if run(command, env=command_env, capture=True).split()[0] != head:
                 raise PublishError("远程 main 在同步期间发生变化，请重试")
     api.prepare_source_repository(repository, head)
-    print(f"GitHub / Gitee main 已同步：{head}", flush=True)
+    print(f"GitHub / GitCode main 已同步：{head}", flush=True)
 
 
 def github_release(repository, tag):
@@ -278,7 +278,7 @@ def github_asset_matches(release, apk, digest, repository):
         with tempfile.TemporaryDirectory() as directory:
             run(["gh", "release", "download", release["tagName"], "--repo", repository,
                  "--pattern", apk.name, "--dir", directory])
-            matches = gitee.sha256((Path(directory) / apk.name).read_bytes()) == digest
+            matches = gitcode.sha256((Path(directory) / apk.name).read_bytes()) == digest
     if not matches:
         raise PublishError("GitHub 同版本 APK 哈希不同，拒绝覆盖")
     return True
@@ -308,35 +308,35 @@ def publish(args, env, metadata, apk, digest):
             raise PublishError(f"缺少命令：{command}")
     repository = env.get("GITHUB_REPOSITORY", GITHUB_REPOSITORY)
     check_tag(metadata)
-    token = read_gitee_token(args, env)
-    api = gitee.GiteeApi(env["GITEE_REPOSITORY"], token)
+    token = read_gitcode_token(args, env)
+    api = gitcode.GitCodeApi(env["GITCODE_REPOSITORY"], token)
     api.check_repository()
     print(f'\n版本：{metadata["tagName"]}\n源码：{metadata["sourceCommit"]}\nAPK：{apk}\nSHA-256：{digest}', flush=True)
-    if not args.yes and input("确认从本机上传到 GitHub 和 Gitee？[y/N] ").strip().lower() != "y":
+    if not args.yes and input("确认从本机上传到 GitHub 和 GitCode？[y/N] ").strip().lower() != "y":
         print("已取消上传，本地签名 APK 已保留")
         return
     sync_source(env, token, require_clean_main(), metadata)
     upload_github(repository, metadata, apk, digest)
-    result = gitee.sync_release(api, metadata, apk, digest)
-    print(f'\n发布完成：\nGitHub：https://github.com/{repository}/releases/tag/{metadata["tagName"]}\nGitee：{result["download_url"]}')
+    result = gitcode.sync_release(api, metadata, apk, digest)
+    print(f'\n发布完成：\nGitHub：https://github.com/{repository}/releases/tag/{metadata["tagName"]}\nGitCode：{result["download_url"]}')
 
 
 def main():
-    parser = argparse.ArgumentParser(description="在本机测试、签名构建并上传到 GitHub 和 Gitee")
+    parser = argparse.ArgumentParser(description="在本机测试、签名构建并上传到 GitHub 和 GitCode")
     parser.add_argument("--yes", action="store_true", help="跳过最终上传确认")
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument("--prepare-only", action="store_true", help="只在本机测试和生成签名 APK，不上传")
     modes.add_argument("--apk", type=Path, help="直接上传已有签名 APK，跳过重新编译")
-    modes.add_argument("--sync-only", action="store_true", help="只将本地 main 同步到 GitHub 和 Gitee")
+    modes.add_argument("--sync-only", action="store_true", help="只将本地 main 同步到 GitHub 和 GitCode")
     parser.add_argument("--source-commit", help="指定已有 APK 的源码提交；默认读取同目录 release.json")
-    parser.add_argument("--gitee-token-file", type=Path, help="读取本机 Gitee 令牌文件（权限 600）")
+    parser.add_argument("--gitcode-token-file", type=Path, help="读取本机 GitCode 令牌文件（权限 600）")
     parser.add_argument("--notes-file", type=Path, help="发行说明文件")
     parser.add_argument("--offline", action="store_true", help="使用 Gradle 离线缓存")
     args = parser.parse_args()
     head = require_clean_main()
     env = local_environment(require_signing=not (args.apk or args.sync_only))
     if args.sync_only:
-        sync_source(env, read_gitee_token(args, env), head)
+        sync_source(env, read_gitcode_token(args, env), head)
         return
     metadata, apk, digest = prepare(args, env, head)
     print(f'\n本地签名包已准备：{apk}\nSHA-256：{digest}', flush=True)
@@ -348,6 +348,6 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except (PublishError, gitee.SyncError, OSError, ValueError, EOFError) as error:
+    except (PublishError, gitcode.SyncError, OSError, ValueError, EOFError) as error:
         print(f"本地发布失败：{error}", file=sys.stderr)
         sys.exit(1)

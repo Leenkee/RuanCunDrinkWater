@@ -22,10 +22,10 @@ class LocalReleaseTest(unittest.TestCase):
         self.apk = self.root / "input/app.apk"
         self.apk.parent.mkdir()
         self.apk.write_bytes(b"signed-apk-fixture")
-        self.digest = publish.gitee.sha256(self.apk.read_bytes())
+        self.digest = publish.gitcode.sha256(self.apk.read_bytes())
         self.head = "a" * 40
         self.args = argparse.Namespace(apk=self.apk, source_commit=None, notes_file=None,
-                                       offline=False, gitee_token_file=None)
+                                       offline=False, gitcode_token_file=None)
 
     def prepare(self):
         def run(command, **kwargs):
@@ -67,28 +67,28 @@ class LocalReleaseTest(unittest.TestCase):
         _, apk, _ = self.prepare()
         apk.write_bytes(b"x" * apk.stat().st_size)
         self.args.apk = apk
-        with self.assertRaisesRegex(publish.gitee.SyncError, "SHA-256"):
+        with self.assertRaisesRegex(publish.gitcode.SyncError, "SHA-256"):
             self.prepare()
 
     def test_token_defaults_to_the_ignored_repository_file(self):
-        token = self.root / "gitee_key.md"
+        token = self.root / "gitCode_token"
         token.write_text("test-token\n")
         token.chmod(0o600)
         with patch.object(publish, "ROOT", self.root):
-            self.assertEqual("test-token", publish.read_gitee_token(self.args, {}))
-        self.assertEqual("override", publish.read_gitee_token(self.args, {"GITEE_TOKEN": "override"}))
+            self.assertEqual("test-token", publish.read_gitcode_token(self.args, {}))
+        self.assertEqual("override", publish.read_gitcode_token(self.args, {"GITCODE_TOKEN": "override"}))
 
     def test_explicit_missing_token_file_does_not_fall_back_to_another_account(self):
-        self.args.gitee_token_file = self.root / "missing"
+        self.args.gitcode_token_file = self.root / "missing"
         with self.assertRaisesRegex(publish.PublishError, "不存在"):
-            publish.read_gitee_token(self.args, {})
+            publish.read_gitcode_token(self.args, {})
 
     def test_git_authentication_uses_temporary_askpass_instead_of_a_token_in_the_url(self):
-        with publish.gitee_git_environment(dict(os.environ, GITEE_REPOSITORY="owner/repo"), "secret") as env:
+        with publish.gitcode_git_environment(dict(os.environ, GITCODE_REPOSITORY="owner/repo"), "secret") as env:
             askpass = Path(env["GIT_ASKPASS"])
             self.assertNotIn("secret", askpass.read_text())
-            for prompt, expected in [("Username for https://gitee.com", "owner\n"),
-                                     ("Password for https://gitee.com", "secret\n")]:
+            for prompt, expected in [("Username for https://gitcode.com", "owner\n"),
+                                     ("Password for https://gitcode.com", "secret\n")]:
                 result = subprocess.check_output([askpass, prompt], env=env, text=True)
                 self.assertEqual(expected, result)
         self.assertFalse(askpass.exists())
@@ -105,7 +105,7 @@ class LocalReleaseTest(unittest.TestCase):
         with patch.object(publish, "run", return_value=refs):
             publish.check_tag({"tagName": "v1.3.29", "sourceCommit": self.head})
 
-    def test_gitee_divergence_is_detected_before_pushing_to_either_host(self):
+    def test_gitcode_divergence_is_detected_before_pushing_to_either_host(self):
         commands = []
 
         def run(command, **kwargs):
@@ -115,9 +115,9 @@ class LocalReleaseTest(unittest.TestCase):
             return subprocess.CompletedProcess(command, int(command[:3] == ["git", "merge-base", "--is-ancestor"]
                                                           and command[3] != "origin/main"))
 
-        with patch.object(publish.gitee, "GiteeApi"), patch.object(publish, "run", side_effect=run):
+        with patch.object(publish.gitcode, "GitCodeApi"), patch.object(publish, "run", side_effect=run):
             with self.assertRaisesRegex(publish.PublishError, "分叉"):
-                publish.sync_source({"GITEE_REPOSITORY": "owner/repo"}, "secret", self.head)
+                publish.sync_source({"GITCODE_REPOSITORY": "owner/repo"}, "secret", self.head)
         self.assertFalse(any("push" in command for command in commands))
 
     def test_source_sync_pushes_and_verifies_the_same_commit_on_both_hosts(self):
@@ -129,13 +129,13 @@ class LocalReleaseTest(unittest.TestCase):
                 return self.head + "\trefs/heads/main"
             return subprocess.CompletedProcess(command, 0)
 
-        with patch.object(publish.gitee, "GiteeApi") as api, patch.object(publish, "run", side_effect=run):
-            publish.sync_source({"GITEE_REPOSITORY": "owner/repo"}, "secret", self.head)
+        with patch.object(publish.gitcode, "GitCodeApi") as api, patch.object(publish, "run", side_effect=run):
+            publish.sync_source({"GITCODE_REPOSITORY": "owner/repo"}, "secret", self.head)
         pushes = [command for command in commands if "push" in command]
         self.assertEqual(2, len(pushes))
         self.assertTrue(all(command[-1] == self.head + ":refs/heads/main" for command in pushes))
         self.assertIn("origin", pushes[0])
-        self.assertIn("https://gitee.com/owner/repo.git", pushes[1])
+        self.assertIn("https://gitcode.com/owner/repo.git", pushes[1])
         self.assertFalse(any("--force" in command for command in commands))
         api.return_value.prepare_source_repository.assert_called_once_with(
             api.return_value.check_repository.return_value, self.head)

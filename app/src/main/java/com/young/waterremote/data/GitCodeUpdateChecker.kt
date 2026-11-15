@@ -17,7 +17,7 @@ data class AvailableRelease(
     val releaseUrl: String
 )
 
-class GiteeUpdateChecker(
+class GitCodeUpdateChecker(
     private val client: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(12, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
@@ -26,12 +26,13 @@ class GiteeUpdateChecker(
     suspend fun fetchLatestRelease(repository: String): AvailableRelease =
         withContext(Dispatchers.IO) {
             val parts = repositoryParts(repository)
-            val url = GITEE_API.toHttpUrl().newBuilder()
+            val url = GITCODE_API.toHttpUrl().newBuilder()
                 .addPathSegment("repos")
                 .addPathSegment(parts[0])
                 .addPathSegment(parts[1])
                 .addPathSegment("releases")
                 .addPathSegment("latest")
+                .addQueryParameter("type", "latest")
                 .build()
             val request = Request.Builder()
                 .url(url)
@@ -43,7 +44,11 @@ class GiteeUpdateChecker(
                 client.newCall(request).execute().use { response ->
                     val body = response.body?.string().orEmpty()
                     if (!response.isSuccessful) {
-                        val message = if (response.code == 404) {
+                        val releaseMissing = response.code == 404 || (response.code == 400 &&
+                            runCatching {
+                                JsonParser.parseString(body).asJsonObject.stringValue("error_message")
+                            }.getOrNull() == "Release not found")
+                        val message = if (releaseMissing) {
                             "尚未发布可用的新版本"
                         } else {
                             "检查更新失败（${response.code}）"
@@ -55,22 +60,25 @@ class GiteeUpdateChecker(
             } catch (error: RemoteApiException) {
                 throw error
             } catch (error: IOException) {
-                throw RemoteApiException("无法连接 Gitee，请检查网络", error)
+                throw RemoteApiException("无法连接 GitCode，请检查网络", error)
             }
         }
 
     internal fun parseRelease(body: String, repository: String): AvailableRelease {
         val root = runCatching { JsonParser.parseString(body).asJsonObject }
-            .getOrElse { throw RemoteApiException("Gitee 返回了无法识别的数据", it) }
-        if (root.stringValue("prerelease")?.equals("true", ignoreCase = true) == true) {
+            .getOrElse { throw RemoteApiException("GitCode 返回了无法识别的数据", it) }
+        if (root.stringValue("prerelease")?.equals("true", ignoreCase = true) == true ||
+            root.stringValue("release_status") == "pre"
+        ) {
             throw RemoteApiException("尚未发布可用的正式版本")
         }
         val tagName = root.stringValue("tag_name")?.takeIf { it.isNotBlank() }
             ?: throw RemoteApiException("最新版本没有版本号")
         val versionName = tagName.removePrefix("v").removePrefix("V")
-            .takeIf { it.isNotBlank() } ?: throw RemoteApiException("最新版本没有版本号")
+            .takeIf { it.matches(Regex("\\d+(?:\\.\\d+)+")) }
+            ?: throw RemoteApiException("最新版本没有有效版本号")
         val parts = repositoryParts(repository)
-        val releaseUrl = "https://gitee.com".toHttpUrl().newBuilder()
+        val releaseUrl = "https://gitcode.com".toHttpUrl().newBuilder()
             .addPathSegment(parts[0])
             .addPathSegment(parts[1])
             .addPathSegment("releases")
@@ -81,10 +89,10 @@ class GiteeUpdateChecker(
             ?.mapNotNull { element -> element.takeIf { it.isJsonObject }?.asJsonObject }
             ?.firstOrNull { asset ->
                 asset.stringValue("name")?.endsWith(".apk", ignoreCase = true) == true &&
-                    asset.stringValue("browser_download_url")?.let(::isGiteeDownloadUrl) == true
+                    asset.stringValue("browser_download_url")?.let(::isGitCodeDownloadUrl) == true
             }
             ?.stringValue("browser_download_url")
-            ?: throw RemoteApiException("最新版本尚未同步可下载的 Gitee APK")
+            ?: throw RemoteApiException("最新版本尚未同步可下载的 GitCode APK")
 
         return AvailableRelease(versionName, downloadUrl, releaseUrl)
     }
@@ -104,13 +112,14 @@ class GiteeUpdateChecker(
     }
 
     private companion object {
-        const val GITEE_API = "https://gitee.com/api/v5"
+        const val GITCODE_API = "https://api.gitcode.com/api/v5"
     }
 }
 
-internal fun isGiteeDownloadUrl(value: String): Boolean {
+internal fun isGitCodeDownloadUrl(value: String): Boolean {
     val url = value.toHttpUrlOrNull() ?: return false
-    return url.isHttps && url.host == "gitee.com" && url.encodedPath != "/"
+    return url.isHttps && url.host == "gitcode.com" && url.encodedPath != "/" &&
+        url.username.isEmpty() && url.password.isEmpty()
 }
 
 internal object VersionComparator {

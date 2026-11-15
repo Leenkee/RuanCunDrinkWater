@@ -1,5 +1,6 @@
 import importlib.util
 import io
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -8,7 +9,7 @@ from urllib.error import HTTPError
 
 
 SPEC = importlib.util.spec_from_file_location(
-    "sync_gitee_release", Path(__file__).parents[1] / "sync-gitee-release.py"
+    "sync_gitcode_release", Path(__file__).parents[1] / "sync-gitcode-release.py"
 )
 sync = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(sync)
@@ -28,27 +29,26 @@ class FakeApi:
 
     def request(self, method, path="", **kwargs):
         self.calls.append((method, path, kwargs))
-        release = {"id": 42, "tag_name": "v1.3.27", "prerelease": False}
-        attachment = {"name": "app.apk", "browser_download_url": "https://gitee.com/owner/downloads/releases/download/v1.3.27/app.apk"}
+        release = {"tag_name": "v1.3.27", "prerelease": False,
+                   "release_status": "latest", "target_commitish": "a" * 40}
+        attachment = {"name": "app.apk", "browser_download_url": "https://gitcode.com/owner/downloads/releases/download/v1.3.27/app.apk"}
         if path == "/releases/tags/v1.3.27":
             if kwargs.get("public"):
                 return dict(release, assets=[attachment] if self.attached else [])
             if not self.existing:
                 raise sync.SyncError("not found", 404)
-            return release
+            return dict(release, assets=[attachment] if self.attached else [])
         if method == "POST" and path == "/releases":
             self.existing = True
             return release
-        if path == "/releases/42/attach_files":
-            if method == "GET":
-                return [attachment] if self.attached else []
-            if method == "POST":
-                self.attached = True
-                return attachment
         raise AssertionError((method, path, kwargs))
 
+    def upload_attachment(self, tag, apk):
+        self.calls.append(("PUT", "/signed-upload", {"tag": tag, "apk": apk}))
+        self.attached = True
 
-class GiteeReleaseSyncTest(unittest.TestCase):
+
+class GitCodeReleaseSyncTest(unittest.TestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
@@ -65,10 +65,11 @@ class GiteeReleaseSyncTest(unittest.TestCase):
         api = FakeApi()
         with patch.object(sync, "download_sha256", return_value=self.digest):
             result = sync.sync_release(api, self.metadata, self.apk, self.digest)
-        writes = [(path, kwargs) for method, path, kwargs in api.calls if method == "POST"]
-        self.assertEqual(["/releases", "/releases/42/attach_files"], [path for path, _ in writes])
+        writes = [(path, kwargs) for method, path, kwargs in api.calls if method in ("POST", "PUT")]
+        self.assertEqual(["/releases", "/signed-upload"], [path for path, _ in writes])
         self.assertEqual("a" * 40, writes[0][1]["fields"]["target_commitish"])
-        self.assertEqual(self.apk, writes[1][1]["upload"])
+        self.assertEqual("latest", writes[0][1]["fields"]["release_status"])
+        self.assertEqual(self.apk, writes[1][1]["apk"])
         self.assertEqual(self.digest, result["sha256"])
 
     def test_rerun_verifies_existing_apk_without_uploading_again(self):
@@ -104,9 +105,10 @@ class GiteeReleaseSyncTest(unittest.TestCase):
         original_request = api.request
 
         def request(method, path="", **kwargs):
-            if method == "GET" and path.endswith("/attach_files"):
-                return [{"name": "other.apk"}]
-            return original_request(method, path, **kwargs)
+            release = original_request(method, path, **kwargs)
+            if method == "GET" and path.startswith("/releases/tags/"):
+                release["assets"] = [{"name": "other.apk"}]
+            return release
 
         api.request = request
         with self.assertRaisesRegex(sync.SyncError, "different APK"):
@@ -148,7 +150,7 @@ class GiteeReleaseSyncTest(unittest.TestCase):
                     sync.select_apk(dict(self.metadata, **{flag: True}), Path(self.directory.name))
 
     def test_verifies_source_commit_before_setting_main_as_default(self):
-        api = sync.GiteeApi("owner/downloads", "test-token")
+        api = sync.GitCodeApi("owner/downloads", "test-token")
         commit = "a" * 40
         with patch.object(api, "request", side_effect=[{"sha": commit}, {}]) as request:
             self.assertEqual(commit, api.prepare_source_repository({"name": "Downloads", "default_branch": "master"}, commit))
@@ -156,7 +158,7 @@ class GiteeReleaseSyncTest(unittest.TestCase):
         self.assertEqual({"name": "Downloads", "default_branch": "main"}, request.call_args_list[1].kwargs["fields"])
 
     def test_missing_source_commit_cannot_publish_a_new_release(self):
-        api = sync.GiteeApi("owner/downloads", "test-token")
+        api = sync.GitCodeApi("owner/downloads", "test-token")
         with patch.object(api, "request", return_value=None):
             with self.assertRaisesRegex(sync.SyncError, "Synchronize"):
                 api.prepare_source_repository({}, "a" * 40)
@@ -168,54 +170,59 @@ class GiteeReleaseSyncTest(unittest.TestCase):
             sync.sync_release(api, self.metadata, self.apk, self.digest)
 
     def test_http_errors_do_not_expose_the_token(self):
-        api = sync.GiteeApi("owner/downloads", "secret-value")
-        failure = HTTPError("https://gitee.com?access_token=secret-value", 403, "secret-value", {}, None)
+        api = sync.GitCodeApi("owner/downloads", "secret-value")
+        failure = HTTPError("https://gitcode.com?access_token=secret-value", 403, "secret-value", {}, None)
         with patch.object(sync, "urlopen", side_effect=failure):
             with self.assertRaises(sync.SyncError) as caught:
                 api.request("GET")
         self.assertNotIn("secret-value", str(caught.exception))
         self.assertEqual(403, caught.exception.status)
 
-    def test_transient_gitee_connection_failure_is_retried_for_reads(self):
-        api = sync.GiteeApi("owner/downloads", "test-token")
+    def test_transient_gitcode_connection_failure_is_retried_for_reads(self):
+        api = sync.GitCodeApi("owner/downloads", "test-token")
         with patch.object(sync, "urlopen", side_effect=[TimeoutError(), io.BytesIO(b'{"public":true}')]) as opened:
             with patch.object(sync.time, "sleep"):
                 self.assertEqual({"public": True}, api.request("GET"))
         self.assertEqual(2, opened.call_count)
 
-    def test_upload_streams_multipart_without_exposing_the_token_in_arguments(self):
-        api = sync.GiteeApi("owner/downloads", "test-token")
+    def test_upload_uses_signed_put_and_returned_headers_without_api_credentials(self):
+        api = sync.GitCodeApi("owner/downloads", "test-token")
+        target = {"url": "https://bucket.obs.cn-south-1.myhuaweicloud.com/apk?signature=private-value",
+                  "headers": {"x-obs-acl": "public-read", "x-obs-meta-project-id": "42",
+                              "x-obs-callback": "callback-data", "Content-Type": "application/octet-stream"}}
 
         def curl(command, **kwargs):
-            response_path = Path(command[command.index("--output") + 1])
-            response_path.write_text('{"id":1}')
             self.assertNotIn("test-token", " ".join(command))
-            self.assertIn('access_token=test-token', kwargs['input'])
-            self.assertIn('file=@' + str(self.apk), kwargs['input'])
+            self.assertNotIn("private-value", " ".join(command))
+            self.assertNotIn("test-token", kwargs["input"])
+            self.assertIn('url = "' + target['url'] + '"', kwargs["input"])
+            self.assertIn("PUT", command)
+            self.assertEqual(str(self.apk), command[command.index("--upload-file") + 1])
+            for key, value in target["headers"].items():
+                self.assertIn(key + ": " + value, kwargs["input"])
             return sync.subprocess.CompletedProcess(command, 0, "201", "")
 
-        with patch.object(sync.subprocess, "run", side_effect=curl):
-            self.assertEqual({"id": 1}, api.request("POST", "/releases/42/attach_files", upload=self.apk))
+        with patch.object(api, "request", return_value=target) as request:
+            with patch.object(sync.subprocess, "run", side_effect=curl):
+                api.upload_attachment("v1.3.27", self.apk)
+        request.assert_called_once_with("GET", "/releases/v1.3.27/upload_url", fields={"file_name": "app.apk"})
 
     def test_timed_out_upload_is_not_duplicated_if_attachment_already_exists(self):
         api = FakeApi(existing=True)
-        original_request = api.request
         uploads = []
 
-        def request(method, path="", **kwargs):
-            if method == 'POST' and path.endswith('/attach_files'):
-                uploads.append(path)
-                api.attached = True
-                raise sync.SyncError('Response timed out')
-            return original_request(method, path, **kwargs)
+        def upload(tag, apk):
+            uploads.append(apk)
+            api.attached = True
+            raise sync.SyncError('Response timed out')
 
-        api.request = request
+        api.upload_attachment = upload
         with patch.object(sync, "download_sha256", return_value=self.digest):
             sync.sync_release(api, self.metadata, self.apk, self.digest)
         self.assertEqual(1, len(uploads))
 
-    def test_download_requires_a_public_gitee_url(self):
-        for url in ["http://gitee.com/app.apk", "https://example.com/app.apk", "https://gitee.com.example.com/app.apk"]:
+    def test_download_requires_a_public_gitcode_url(self):
+        for url in ["http://gitcode.com/app.apk", "https://example.com/app.apk", "https://gitcode.com.example.com/app.apk"]:
             with self.assertRaises(sync.SyncError):
                 sync.download_sha256(url)
 
@@ -223,7 +230,60 @@ class GiteeReleaseSyncTest(unittest.TestCase):
         payload = self.apk.read_bytes()
         with patch.object(sync, "urlopen", side_effect=[TimeoutError(), io.BytesIO(payload)]):
             with patch.object(sync.time, "sleep"):
-                self.assertEqual(self.digest, sync.download_sha256("https://gitee.com/owner/repo/app.apk"))
+                self.assertEqual(self.digest, sync.download_sha256("https://gitcode.com/owner/repo/app.apk"))
+
+    def test_missing_release_http_400_is_normalized_but_other_400_errors_are_not(self):
+        api = sync.GitCodeApi("owner/downloads", "secret-value")
+        for message, expected in [("Release not found", 404), ("Invalid tag", 400)]:
+            body = io.BytesIO(('{"error_message":"' + message + '"}').encode())
+            error = HTTPError("https://api.gitcode.com", 400, "Bad Request", {}, body)
+            with patch.object(sync, "urlopen", side_effect=error):
+                with self.assertRaises(sync.SyncError) as caught:
+                    api.request("GET", "/releases/tags/v1.3.27")
+            self.assertEqual(expected, caught.exception.status)
+
+    def test_api_authentication_uses_a_header_and_public_requests_have_no_token(self):
+        api = sync.GitCodeApi("owner/downloads", "secret-value")
+        for public in (False, True):
+            with patch.object(sync, "urlopen", return_value=io.BytesIO(b'{}')) as opened:
+                api.request("GET", "/releases", public=public)
+            request = opened.call_args.args[0]
+            self.assertNotIn("secret-value", request.full_url)
+            self.assertEqual(None if public else "Bearer secret-value", request.get_header("Authorization"))
+
+    def test_create_release_uses_a_json_body_and_bearer_header(self):
+        api = sync.GitCodeApi("owner/downloads", "secret-value")
+        fields = {"tag_name": "v1.3.30", "release_status": "latest", "body": "软村饮水"}
+        with patch.object(sync, "urlopen", return_value=io.BytesIO(b'{}')) as opened:
+            api.request("POST", "/releases", fields=fields)
+        request = opened.call_args.args[0]
+        self.assertEqual("POST", request.get_method())
+        self.assertEqual("application/json", request.get_header("Content-type"))
+        self.assertEqual(fields, json.loads(request.data))
+        self.assertNotIn("secret-value", request.full_url)
+        self.assertNotIn("secret-value", request.data.decode())
+
+    def test_a_release_with_a_different_source_commit_is_not_modified(self):
+        api = FakeApi(existing=True)
+        original_request = api.request
+
+        def request(method, path="", **kwargs):
+            release = original_request(method, path, **kwargs)
+            release["target_commitish"] = "b" * 40
+            return release
+
+        api.request = request
+        with self.assertRaisesRegex(sync.SyncError, "stable release source"):
+            sync.sync_release(api, self.metadata, self.apk, self.digest)
+        self.assertFalse(any(method in ("POST", "PUT") for method, _, _ in api.calls))
+
+    def test_repository_validation_uses_anonymous_releases_instead_of_private_details_endpoint(self):
+        api = sync.GitCodeApi("owner/downloads", "secret-value")
+        repository = {"private": False, "public": True}
+        with patch.object(api, "request", side_effect=[repository, []]) as request:
+            self.assertEqual(repository, api.check_repository())
+        self.assertEqual(("GET", "/releases"), request.call_args_list[1].args)
+        self.assertTrue(request.call_args_list[1].kwargs["public"])
 
 
 if __name__ == "__main__":
