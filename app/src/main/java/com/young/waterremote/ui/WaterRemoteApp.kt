@@ -125,7 +125,7 @@ import java.time.format.DateTimeFormatter
 
 private enum class MainSection(val title: String, val label: String) {
     CONTROL("软村饮水", "饮水"),
-    DEVICES("设备绑定", "饮水机"),
+    DEVICES("设备绑定", "设备"),
     ACCOUNT("我的", "我的")
 }
 
